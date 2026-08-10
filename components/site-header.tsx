@@ -19,16 +19,35 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-white/95 backdrop-blur" style={{ borderColor: COLORS.border }}>
-      <div className="hidden bg-[#3B2416] py-2 text-center text-xs text-[#FFF8F0] md:block">
+      <div className="hidden bg-[#3B2416] py-2 text-center text-xs text-[#FFF8F0] sm:block">
         동네 베이커리의 가장 맛있는 순간을 오픈베이크에서 만나보세요
       </div>
 
-      <div className="mx-auto flex h-[68px] max-w-[1200px] items-center gap-5 px-4 md:h-[84px] md:px-6">
-        <Link href="/" className="shrink-0 font-serif text-2xl font-extrabold tracking-tight md:text-3xl" style={{ color: COLORS.deep }}>
+      <div className="mx-auto grid max-w-[1200px] grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3 px-4 py-3 sm:gap-x-6 md:px-6 lg:flex lg:h-[84px] lg:gap-5 lg:py-0">
+        <Link href="/" className="shrink-0 font-serif text-2xl font-extrabold tracking-tight sm:text-3xl" style={{ color: COLORS.deep }}>
           OpenBake
         </Link>
 
-        <form onSubmit={submitSearch} className="mx-auto flex w-full max-w-[520px] items-center">
+        <div className="flex items-center justify-self-end lg:hidden">
+          <Link
+            href="/wallet"
+            className="flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ color: COLORS.text, background: COLORS.accentSoft }}
+            aria-label="예치금"
+          >
+            <Wallet size={18} />
+          </Link>
+          <Link
+            href="/mypage"
+            className="flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ color: COLORS.text }}
+            aria-label="마이페이지"
+          >
+            <UserRound size={19} />
+          </Link>
+        </div>
+
+        <form onSubmit={submitSearch} className="order-3 col-span-2 mx-auto flex w-full items-center lg:order-none lg:col-span-1 lg:max-w-[520px]">
           <label htmlFor="global-search" className="sr-only">
             상품 검색
           </label>
@@ -39,13 +58,13 @@ export function SiteHeader() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="빵, 베이커리를 검색해보세요"
-              className="h-11 w-full rounded-full border bg-[#FAF7F2] pl-11 pr-4 text-sm outline-none transition-colors focus:border-[#8B5E3C] md:h-12"
+              className="h-11 w-full rounded-full border bg-[#FAF7F2] pl-11 pr-4 text-sm outline-none transition-colors focus:border-[#8B5E3C] lg:h-12"
               style={{ borderColor: COLORS.border, color: COLORS.text }}
             />
           </div>
         </form>
 
-        <nav className="hidden shrink-0 items-center gap-1 md:flex" aria-label="사용자 메뉴">
+        <nav className="hidden shrink-0 items-center gap-1 lg:flex" aria-label="사용자 메뉴">
           {[
             { href: "/wallet", label: "예치금", icon: Wallet },
             { href: "/wishlist", label: "찜", icon: Bookmark },
@@ -65,7 +84,7 @@ export function SiteHeader() {
         </nav>
       </div>
 
-      <nav className="hidden border-t md:block" style={{ borderColor: COLORS.border }} aria-label="상품 카테고리">
+      <nav className="hidden border-t lg:block" style={{ borderColor: COLORS.border }} aria-label="상품 카테고리">
         <div className="mx-auto flex h-12 max-w-[1200px] items-center gap-7 overflow-x-auto px-6 text-sm font-semibold">
           <Link href="/categories" style={{ color: COLORS.accent }}>
             전체 카테고리

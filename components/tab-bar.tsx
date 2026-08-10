@@ -13,7 +13,7 @@ const TABS = [
 export function TabBar({ activeHref }: { activeHref: string }) {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 flex border-t md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t lg:hidden"
       style={{
         background: COLORS.surface,
         borderColor: COLORS.border,
@@ -26,7 +26,7 @@ export function TabBar({ activeHref }: { activeHref: string }) {
           <Link
             key={href}
             href={href}
-            className="flex-1 flex flex-col items-center gap-0.5 py-3"
+            className="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-2"
             style={{ color: active ? COLORS.accent : COLORS.muted }}
             aria-current={active ? "page" : undefined}
           >

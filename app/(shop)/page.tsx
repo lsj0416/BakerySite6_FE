@@ -33,11 +33,11 @@ export default function HomePage() {
 
   return (
     <main style={{ background: COLORS.bg }}>
-      <section className="mx-auto grid max-w-[1200px] gap-6 px-4 py-6 md:grid-cols-[1.08fr_.92fr] md:px-6 md:py-10">
-        <div className="flex min-h-[360px] flex-col justify-between rounded-[28px] px-6 py-8 md:min-h-[480px] md:px-10 md:py-12" style={{ background: "linear-gradient(135deg, #F2E4D4 0%, #E8CFB4 100%)" }}>
+      <section className="mx-auto grid max-w-[1200px] gap-4 px-4 py-5 sm:gap-6 md:px-6 md:py-8 lg:grid-cols-[1.08fr_.92fr] lg:py-10">
+        <div className="flex min-h-[340px] flex-col justify-between rounded-[24px] px-5 py-7 sm:min-h-[400px] sm:px-8 sm:py-10 lg:min-h-[480px] lg:rounded-[28px] lg:px-10 lg:py-12" style={{ background: "linear-gradient(135deg, #F2E4D4 0%, #E8CFB4 100%)" }}>
           <div>
             <p className="text-xs font-bold tracking-[0.2em]" style={{ color: COLORS.accent }}>LOCAL BAKERY MARKET</p>
-            <h1 className="mt-5 max-w-lg font-serif text-4xl font-extrabold leading-[1.12] md:text-6xl" style={{ color: COLORS.deep }}>
+            <h1 className="mt-5 max-w-lg font-serif text-4xl font-extrabold leading-[1.12] sm:text-5xl lg:text-6xl" style={{ color: COLORS.deep }}>
               가장 맛있는 순간의 빵을 만나요
             </h1>
             <p className="mt-5 max-w-md text-sm leading-6 md:text-base" style={{ color: COLORS.muted }}>
@@ -54,7 +54,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        <Link href={featured ? `/drops/${featured.dropId}` : "/categories"} className="group relative min-h-[360px] overflow-hidden rounded-[28px] md:min-h-[480px]" style={{ background: COLORS.accentSoft }}>
+        <Link href={featured ? `/drops/${featured.dropId}` : "/categories"} className="group relative min-h-[340px] overflow-hidden rounded-[24px] sm:min-h-[400px] lg:min-h-[480px] lg:rounded-[28px]" style={{ background: COLORS.accentSoft }}>
           <BreadBox label={featured?.name ?? "오늘의 베이커리"} src={featured?.imageUrl} className="absolute inset-0 h-full w-full transition-transform duration-700 group-hover:scale-105" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
           <div className="absolute left-5 right-5 top-5 flex items-center justify-between">
@@ -108,7 +108,7 @@ export default function HomePage() {
               <button onClick={() => dropsQuery.refetch()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-bold text-white" style={{ background: COLORS.accent }}>다시 시도</button>
             </div>
           ) : products.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-4 md:gap-x-5">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} />)}</div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} />)}</div>
           ) : (
             <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.bg, color: COLORS.muted }}>추천할 수 있는 상품을 준비하고 있어요.</p>
           )}
@@ -126,7 +126,7 @@ export default function HomePage() {
             <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold text-[#E7C9A8] md:flex">전체 드롭 <ArrowRight size={15} /></Link>
           </div>
           {products.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-4 md:gap-x-5 [&_p]:!text-white [&_article_p:last-child]:!text-white/60">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4 [&_p]:!text-white [&_article_p:last-child]:!text-white/60">
               {products.slice(0, 8).map((product) => <ProductCard key={product.id} product={product} />)}
             </div>
           ) : (

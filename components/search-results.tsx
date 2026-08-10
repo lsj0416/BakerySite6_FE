@@ -64,7 +64,7 @@ export function SearchResults({ initialQuery }: { initialQuery: string }) {
           <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>다른 단어로 검색하거나 카테고리를 둘러보세요.</p>
         </div>
       ) : (
-        <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">
+        <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 md:gap-x-5 lg:grid-cols-4">
           {products.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
       )}

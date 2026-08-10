@@ -19,5 +19,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoading || !isAuthenticated || role !== "ADMIN") return null;
 
-  return <>{children}</>;
+  return (
+    <div className="mx-auto flex min-h-dvh w-full max-w-[760px] flex-col">
+      {children}
+    </div>
+  );
 }

@@ -82,7 +82,7 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
       </div>
 
       {dropsQuery.isLoading ? (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 md:gap-x-5 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
             <div key={index} className="animate-pulse">
               <div className="aspect-[4/5] rounded-2xl" style={{ background: COLORS.accentSoft }} />
@@ -104,7 +104,7 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
           <Link href="/categories" className="mt-4 inline-block text-sm font-bold underline" style={{ color: COLORS.accent }}>전체 상품 보기</Link>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 md:gap-y-10 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 md:gap-x-5 md:gap-y-10 lg:grid-cols-4">
           {products.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
       )}
