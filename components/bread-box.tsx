@@ -33,14 +33,14 @@ export function BreadBox({
       className={`relative overflow-hidden flex items-center justify-center ${className}`}
       style={{
         background:
-          "radial-gradient(ellipse at 38% 35%, #2A2118 0%, #161210 55%, #0D0B08 100%)",
+          "radial-gradient(ellipse at 38% 35%, #F3E2CF 0%, #E8D4BF 55%, #D8BFA6 100%)",
       }}
     >
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at 40% 40%, rgba(245,165,36,0.07) 0%, transparent 65%)",
+            "radial-gradient(ellipse at 40% 40%, rgba(139,94,60,0.12) 0%, transparent 65%)",
         }}
       />
       {label && (

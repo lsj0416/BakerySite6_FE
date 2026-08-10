@@ -3,9 +3,10 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { TabBar } from "@/components/tab-bar";
+import { SiteHeader } from "@/components/site-header";
 import { useAuth } from "@/lib/auth/auth-context";
 
-const TAB_ROUTES = new Set(["/", "/wishlist", "/orders", "/mypage"]);
+const TAB_ROUTES = new Set(["/", "/categories", "/wishlist", "/orders", "/mypage"]);
 
 export default function ShopLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -22,9 +23,10 @@ export default function ShopLayout({ children }: { children: React.ReactNode }) 
   if (isLoading || !isAuthenticated) return null;
 
   return (
-    <>
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">{children}</div>
+    <div className="min-h-dvh w-full">
+      <SiteHeader />
+      <div className={showTabBar ? "min-h-0 pb-[76px] md:pb-0" : "min-h-0"}>{children}</div>
       {showTabBar && <TabBar activeHref={pathname} />}
-    </>
+    </div>
   );
 }

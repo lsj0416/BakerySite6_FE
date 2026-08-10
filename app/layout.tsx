@@ -35,7 +35,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#121212",
+  themeColor: "#FAF7F2",
 };
 
 export default function RootLayout({
@@ -46,10 +46,10 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`dark ${playfairDisplay.variable} ${inter.variable} ${jetbrainsMono.variable} h-dvh antialiased`}
+      className={`${playfairDisplay.variable} ${inter.variable} ${jetbrainsMono.variable} min-h-dvh antialiased`}
     >
-      <body className="h-dvh overflow-hidden font-sans flex justify-center bg-black">
-        <div className="w-full max-w-[480px] h-full flex flex-col overflow-hidden">
+      <body className="min-h-dvh font-sans bg-background text-foreground">
+        <div className="min-h-dvh w-full flex flex-col">
           <Providers>{children}</Providers>
         </div>
       </body>

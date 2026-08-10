@@ -4,29 +4,29 @@
 
 :root {
   --font-size: 16px;
-  --background: #121212;
-  --foreground: #F2EDE6;
-  --card: #1E1B18;
-  --card-foreground: #F2EDE6;
-  --popover: #1E1B18;
-  --popover-foreground: #F2EDE6;
-  --primary: #F5A524;
-  --primary-foreground: #121212;
-  --secondary: #2A2118;
-  --secondary-foreground: #F2EDE6;
-  --muted: #1E1B18;
-  --muted-foreground: #8F857A;
-  --accent: #2A2118;
-  --accent-foreground: #F5A524;
-  --destructive: #F5A524;
-  --destructive-foreground: #121212;
-  --border: #332E28;
-  --input: #1E1B18;
-  --input-background: #1E1B18;
-  --switch-background: #4A443C;
+  --background: #FAF7F2;
+  --foreground: #2D2018;
+  --card: #FFFFFF;
+  --card-foreground: #2D2018;
+  --popover: #FFFFFF;
+  --popover-foreground: #2D2018;
+  --primary: #8B5E3C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F3E9DE;
+  --secondary-foreground: #2D2018;
+  --muted: #F3EDE6;
+  --muted-foreground: #7B6A5E;
+  --accent: #F3E9DE;
+  --accent-foreground: #8B5E3C;
+  --destructive: #B64B3C;
+  --destructive-foreground: #FFFFFF;
+  --border: #E8DDD1;
+  --input: #FFFFFF;
+  --input-background: #FFFFFF;
+  --switch-background: #C7BBB0;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #F5A524;
+  --ring: #8B5E3C;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -205,9 +205,19 @@ html,
 body {
   overscroll-behavior-y: none;
   -webkit-text-size-adjust: 100%;
+  background: var(--background);
 }
 
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ring) 65%, transparent);
+  outline-offset: 3px;
+}
+
+html {
+  scroll-behavior: smooth;
 }

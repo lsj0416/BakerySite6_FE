@@ -3,14 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Wallet } from "lucide-react";
-import { COLORS } from "@/lib/theme";
+import { ArrowRight, Clock3, Sparkles, Wallet } from "lucide-react";
 import { BreadBox } from "@/components/bread-box";
-import { DropBadge } from "@/components/drop-badge";
+import { ProductCard } from "@/components/product-card";
 import * as dropApi from "@/lib/api/drop";
 import * as paymentApi from "@/lib/api/payment";
+import { CATEGORIES, dropToCatalogProduct } from "@/lib/catalog";
+import { msToHMS, pad } from "@/lib/format";
+import { COLORS } from "@/lib/theme";
 import { toDropStatus } from "@/lib/types";
-import { pad, msToHMS, fmtDateTime, fmtPickup } from "@/lib/format";
 
 export default function HomePage() {
   const [now, setNow] = useState(() => new Date());
@@ -19,204 +20,132 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, []);
 
-  const accountQuery = useQuery({
-    queryKey: ["deposit-account"],
-    queryFn: paymentApi.getDepositAccount,
-  });
-
-  const upcomingQuery = useQuery({
-    queryKey: ["upcoming-drops"],
-    queryFn: () => dropApi.getUpcomingDrops(),
-  });
-
-  const drops = upcomingQuery.data ?? [];
-  const drop = drops[0] ?? null;
-  const laterDrops = drops.slice(1);
-
-  const dateGroups = useMemo(() => {
-    const map = new Map<string, typeof laterDrops>();
-    for (const d of laterDrops) {
-      const dateStr = d.dropStart.slice(0, 10);
-      if (!map.has(dateStr)) map.set(dateStr, []);
-      map.get(dateStr)!.push(d);
-    }
-    return Array.from(map.entries());
-  }, [laterDrops]);
-
-  const status = drop ? toDropStatus(drop.dropStatus, drop.remainQuantity) : null;
-  const target = drop
-    ? status === "SCHEDULED"
-      ? new Date(drop.dropStart).getTime()
-      : new Date(drop.dropEnd).getTime()
+  const accountQuery = useQuery({ queryKey: ["deposit-account"], queryFn: paymentApi.getDepositAccount });
+  const dropsQuery = useQuery({ queryKey: ["upcoming-drops"], queryFn: () => dropApi.getUpcomingDrops(30) });
+  const drops = useMemo(() => dropsQuery.data ?? [], [dropsQuery.data]);
+  const products = useMemo(() => drops.map(dropToCatalogProduct), [drops]);
+  const featured = drops[0];
+  const featuredStatus = featured ? toDropStatus(featured.dropStatus, featured.remainQuantity) : null;
+  const featuredTarget = featured
+    ? new Date(featuredStatus === "SCHEDULED" ? featured.dropStart : featured.dropEnd).getTime()
     : null;
-  const hms = target ? msToHMS(target - now.getTime()) : null;
+  const countdown = featuredTarget ? msToHMS(featuredTarget - now.getTime()) : null;
 
   return (
-    <div className="flex flex-col flex-1" style={{ background: COLORS.bg }}>
-      <div
-        className="flex items-center justify-between px-4 pb-3 flex-shrink-0"
-        style={{ paddingTop: "max(3rem, env(safe-area-inset-top))" }}
-      >
-        <span className="text-2xl font-bold font-serif" style={{ color: COLORS.text }}>
-          오픈베이크
-        </span>
-        <Link
-          href="/wallet"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold"
-          style={{
-            background: COLORS.accentSoft,
-            color: COLORS.accent,
-            border: `1px solid ${COLORS.border}`,
-          }}
-        >
-          <Wallet size={13} />
-          {accountQuery.data ? `${accountQuery.data.balance.toLocaleString()}원` : "예치금"}
-        </Link>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {upcomingQuery.isLoading && (
-          <p className="text-sm text-center mt-10" style={{ color: COLORS.muted }}>
-            불러오는 중...
-          </p>
-        )}
-
-        {upcomingQuery.data && drops.length === 0 && (
-          <div
-            className="mx-4 mt-4 rounded-2xl px-5 py-8 text-center"
-            style={{ background: COLORS.accentSoft, border: `1px solid ${COLORS.border}` }}
-          >
-            <p className="text-sm" style={{ color: COLORS.muted }}>
-              예정된 드롭이 없습니다
+    <main style={{ background: COLORS.bg }}>
+      <section className="mx-auto grid max-w-[1200px] gap-6 px-4 py-6 md:grid-cols-[1.08fr_.92fr] md:px-6 md:py-10">
+        <div className="flex min-h-[360px] flex-col justify-between rounded-[28px] px-6 py-8 md:min-h-[480px] md:px-10 md:py-12" style={{ background: "linear-gradient(135deg, #F2E4D4 0%, #E8CFB4 100%)" }}>
+          <div>
+            <p className="text-xs font-bold tracking-[0.2em]" style={{ color: COLORS.accent }}>LOCAL BAKERY MARKET</p>
+            <h1 className="mt-5 max-w-lg font-serif text-4xl font-extrabold leading-[1.12] md:text-6xl" style={{ color: COLORS.deep }}>
+              가장 맛있는 순간의 빵을 만나요
+            </h1>
+            <p className="mt-5 max-w-md text-sm leading-6 md:text-base" style={{ color: COLORS.muted }}>
+              동네 베이커리의 일상 상품부터 수량 한정 드롭까지, 취향에 맞는 빵을 한곳에서 발견하세요.
             </p>
           </div>
-        )}
-
-        {drop && status && hms && (
-          <>
-            {(status === "SCHEDULED" || status === "ON_SALE") && (
-              <div
-                className="mx-4 mb-5 mt-4 rounded-2xl px-5 py-4 text-center"
-                style={{ background: COLORS.accentSoft, border: `1px solid ${COLORS.border}` }}
-              >
-                <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
-                  {status === "SCHEDULED" ? "드롭 오픈까지" : "판매 마감까지"}
-                </p>
-                <div className="flex items-end justify-center gap-1">
-                  {[hms.h, hms.m, hms.s].map((v, i) => (
-                    <div key={i} className="flex items-end">
-                      {i > 0 && (
-                        <span
-                          className="text-3xl font-bold mb-3 mx-0.5 font-mono"
-                          style={{ color: COLORS.muted }}
-                        >
-                          :
-                        </span>
-                      )}
-                      <div className="flex flex-col items-center">
-                        <span
-                          className="text-5xl font-bold tabular-nums leading-none font-mono"
-                          style={{ color: COLORS.text }}
-                        >
-                          {pad(v)}
-                        </span>
-                        <span className="text-[11px] mt-1" style={{ color: COLORS.muted }}>
-                          {["시", "분", "초"][i]}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs mt-3" style={{ color: COLORS.muted }}>
-                  {fmtDateTime(drop.dropStart)} 오픈 · {drop.name}
-                </p>
-              </div>
-            )}
-
-            <div className="px-4 mt-4">
-              <Link
-                href={`/drops/${drop.dropId}`}
-                className="block rounded-xl overflow-hidden"
-                style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
-              >
-                <div className="relative">
-                  <BreadBox
-                    label={drop.name}
-                    className="w-full h-[200px]"
-                    src={drop.imageUrl}
-                    dim={status === "SOLD_OUT" || status === "CLOSED"}
-                  />
-                  <div className="absolute top-2 left-2">
-                    <DropBadge status={status} />
-                  </div>
-                </div>
-                <div className="p-3">
-                  <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                    {drop.name}
-                  </p>
-                  <p className="text-sm" style={{ color: COLORS.text }}>
-                    {drop.price.toLocaleString()}원
-                  </p>
-                  {status === "ON_SALE" && (
-                    <p className="text-[11px] mt-1 font-semibold" style={{ color: COLORS.accent }}>
-                      {drop.remainQuantity}개 남음
-                    </p>
-                  )}
-                </div>
-              </Link>
-            </div>
-          </>
-        )}
-
-        {dateGroups.length > 0 && (
-          <div className="mt-6 flex flex-col gap-5">
-            <span className="px-4 text-sm font-semibold" style={{ color: COLORS.text }}>
-              다가오는 드롭
-            </span>
-            {dateGroups.map(([dateStr, groupDrops]) => (
-              <div key={dateStr}>
-                <span className="px-4 text-xs font-semibold" style={{ color: COLORS.muted }}>
-                  {fmtPickup(dateStr)}
-                </span>
-                <div className="flex gap-3 px-4 mt-2 overflow-x-auto pb-1">
-                  {groupDrops.map((d) => {
-                    const dStatus = toDropStatus(d.dropStatus, d.remainQuantity);
-                    return (
-                      <Link
-                        key={d.dropId}
-                        href={`/drops/${d.dropId}`}
-                        className="flex-shrink-0 w-[148px] rounded-xl overflow-hidden"
-                        style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
-                      >
-                        <div className="relative">
-                          <BreadBox
-                            label={d.name}
-                            className="w-full h-[148px]"
-                            src={d.imageUrl}
-                            dim={dStatus === "SOLD_OUT" || dStatus === "CLOSED"}
-                          />
-                          <div className="absolute top-2 left-2">
-                            <DropBadge status={dStatus} />
-                          </div>
-                        </div>
-                        <div className="p-2.5">
-                          <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                            {d.name}
-                          </p>
-                          <p className="text-sm" style={{ color: COLORS.text }}>
-                            {d.price.toLocaleString()}원
-                          </p>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/categories" className="inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white" style={{ background: COLORS.deep }}>
+              베이커리 둘러보기 <ArrowRight size={16} />
+            </Link>
+            <Link href="#drops" className="inline-flex items-center gap-2 rounded-full border bg-white/60 px-5 py-3 text-sm font-bold" style={{ color: COLORS.text, borderColor: "rgba(59,36,22,.15)" }}>
+              한정 드롭 보기
+            </Link>
           </div>
-        )}
-        <div className="h-4" />
-      </div>
-    </div>
+        </div>
+
+        <Link href={featured ? `/drops/${featured.dropId}` : "/categories"} className="group relative min-h-[360px] overflow-hidden rounded-[28px] md:min-h-[480px]" style={{ background: COLORS.accentSoft }}>
+          <BreadBox label={featured?.name ?? "오늘의 베이커리"} src={featured?.imageUrl} className="absolute inset-0 h-full w-full transition-transform duration-700 group-hover:scale-105" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
+          <div className="absolute left-5 right-5 top-5 flex items-center justify-between">
+            <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold" style={{ color: COLORS.accent }}>오늘의 드롭</span>
+            <span className="flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur">
+              <Clock3 size={13} />
+              {countdown ? `${pad(countdown.h)}:${pad(countdown.m)}:${pad(countdown.s)}` : "준비 중"}
+            </span>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 p-6 text-white md:p-8">
+            <p className="text-sm text-white/70">가장 가까운 한정 판매</p>
+            <h2 className="mt-2 font-serif text-3xl font-bold md:text-4xl">{featured?.name ?? "새로운 드롭을 준비하고 있어요"}</h2>
+            {featured && <p className="mt-3 text-lg font-bold">{featured.price.toLocaleString()}원</p>}
+          </div>
+        </Link>
+      </section>
+
+      <section className="mx-auto max-w-[1200px] px-4 py-12 md:px-6 md:py-16">
+        <div className="mb-7 flex items-end justify-between">
+          <div>
+            <p className="text-xs font-bold tracking-[0.18em]" style={{ color: COLORS.accent }}>CATEGORY</p>
+            <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>어떤 빵을 찾으세요?</h2>
+          </div>
+          <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>전체보기 <ArrowRight size={15} /></Link>
+        </div>
+        <div className="grid grid-cols-3 gap-2 md:grid-cols-6 md:gap-3">
+          {CATEGORIES.map((category) => (
+            <Link key={category.slug} href={`/categories/${category.slug}`} className="group rounded-2xl border bg-white px-2 py-5 text-center transition-transform hover:-translate-y-1 md:px-4 md:py-7" style={{ borderColor: COLORS.border }}>
+              <span className="text-3xl md:text-4xl" aria-hidden="true">{category.emoji}</span>
+              <p className="mt-3 text-xs font-bold md:text-sm" style={{ color: COLORS.text }}>{category.shortLabel}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="border-y py-12 md:py-16" style={{ background: COLORS.surface, borderColor: COLORS.border }}>
+        <div className="mx-auto max-w-[1200px] px-4 md:px-6">
+          <div className="mb-7 flex items-end justify-between">
+            <div>
+              <p className="flex items-center gap-1.5 text-xs font-bold tracking-[0.16em]" style={{ color: COLORS.accent }}><Sparkles size={14} /> AI RECOMMEND</p>
+              <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>취향에 맞을 것 같은 빵</h2>
+              <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>추천 서비스 연결 전에는 가까운 드롭을 우선 보여줍니다.</p>
+            </div>
+            <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>더 보기 <ArrowRight size={15} /></Link>
+          </div>
+          {dropsQuery.isLoading ? (
+            <p className="py-16 text-center text-sm" style={{ color: COLORS.muted }}>추천 상품을 준비 중입니다...</p>
+          ) : dropsQuery.isError ? (
+            <div className="rounded-2xl px-5 py-10 text-center" style={{ background: COLORS.bg }}>
+              <p className="text-sm" style={{ color: COLORS.muted }}>추천 상품을 불러오지 못했습니다.</p>
+              <button onClick={() => dropsQuery.refetch()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-bold text-white" style={{ background: COLORS.accent }}>다시 시도</button>
+            </div>
+          ) : products.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-4 md:gap-x-5">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} />)}</div>
+          ) : (
+            <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.bg, color: COLORS.muted }}>추천할 수 있는 상품을 준비하고 있어요.</p>
+          )}
+        </div>
+      </section>
+
+      <section id="drops" className="scroll-mt-36 bg-[#3B2416] py-12 text-white md:py-16">
+        <div className="mx-auto max-w-[1200px] px-4 md:px-6">
+          <div className="mb-7 flex items-end justify-between">
+            <div>
+              <p className="text-xs font-bold tracking-[0.18em] text-[#DDBE9B]">LIMITED DROP</p>
+              <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl">놓치면 다시 만나기 어려워요</h2>
+              <p className="mt-2 text-sm text-white/65">수량과 시간이 한정된 베이커리 드롭</p>
+            </div>
+            <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold text-[#E7C9A8] md:flex">전체 드롭 <ArrowRight size={15} /></Link>
+          </div>
+          {products.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-4 md:gap-x-5 [&_p]:!text-white [&_article_p:last-child]:!text-white/60">
+              {products.slice(0, 8).map((product) => <ProductCard key={product.id} product={product} />)}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/15 bg-white/5 px-5 py-14 text-center text-sm text-white/60">예정된 드롭이 없습니다.</div>
+          )}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-[1200px] px-4 py-12 md:px-6 md:py-16">
+        <div className="flex flex-col justify-between gap-5 rounded-[28px] border bg-white p-6 md:flex-row md:items-center md:p-9" style={{ borderColor: COLORS.border }}>
+          <div>
+            <p className="font-serif text-2xl font-bold" style={{ color: COLORS.text }}>예치금으로 빠르고 안전하게 결제하세요</p>
+            <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>드롭 오픈 순간, 충전된 예치금으로 바로 구매할 수 있어요.</p>
+          </div>
+          <Link href="/wallet" className="inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white" style={{ background: COLORS.accent }}>
+            <Wallet size={17} /> {accountQuery.data ? `${accountQuery.data.balance.toLocaleString()}원 관리` : "예치금 확인"}
+          </Link>
+        </div>
+      </section>
+    </main>
   );
 }

@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronLeft, Heart, MapPin, Minus, Plus } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
 import { DropBadge } from "@/components/drop-badge";
+import { ProductCard } from "@/components/product-card";
 import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
 import * as cartApi from "@/lib/api/cart";
 import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
+import { dropToCatalogProduct } from "@/lib/catalog";
 import { pad, msToHMS, fmtDateTime, fmtPickup } from "@/lib/format";
 import {
   EMPTY_WISHLIST,
@@ -100,6 +102,19 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
     refetchInterval: 1000,
   });
 
+  const recommendationsQuery = useQuery({
+    queryKey: ["upcoming-drops", 30],
+    queryFn: () => dropApi.getUpcomingDrops(30),
+  });
+  const recommendations = useMemo(
+    () =>
+      (recommendationsQuery.data ?? [])
+        .filter((item) => item.dropId !== dropId)
+        .map(dropToCatalogProduct)
+        .slice(0, 3),
+    [dropId, recommendationsQuery.data],
+  );
+
   useEffect(() => {
     if (!rankPollingEnabled || rankQuery.data?.status !== "ACTIVE") return;
     confirmMutation.mutate();
@@ -125,9 +140,12 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         : null;
 
   return (
-    <div className="flex flex-col flex-1" style={{ background: COLORS.bg }}>
+    <div
+      className="mx-auto w-full max-w-[1200px] flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_430px] lg:items-start lg:gap-10 lg:px-6 lg:py-8"
+      style={{ background: COLORS.bg }}
+    >
       {/* Hero */}
-      <div className="relative flex-shrink-0" style={{ height: 300 }}>
+      <div className="relative h-[300px] flex-shrink-0 lg:sticky lg:top-[164px] lg:row-span-2 lg:h-[620px] lg:overflow-hidden lg:rounded-[28px]">
         <BreadBox
           label={drop.name}
           className="absolute inset-0"
@@ -213,8 +231,8 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 pt-4 pb-3">
+      <div className="min-w-0 flex-1 lg:overflow-visible">
+        <div className="px-4 pt-4 pb-3 lg:px-0 lg:pt-2">
           <DropBadge status={status} />
           <h1 className="text-2xl font-bold mt-3 mb-1 leading-tight font-serif" style={{ color: COLORS.text }}>
             {drop.name}
@@ -228,7 +246,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         </div>
 
         <div
-          className="mx-4 mb-3 rounded-xl overflow-hidden"
+          className="mx-4 mb-3 overflow-hidden rounded-xl lg:mx-0"
           style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
         >
           {[
@@ -292,7 +310,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         </div>
 
         <div
-          className="mx-4 mb-4 rounded-xl p-4"
+          className="mx-4 mb-4 rounded-xl p-4 lg:mx-0"
           style={{ background: COLORS.accentSoft, border: `1px solid ${COLORS.border}` }}
         >
           <div className="flex items-center gap-2 mb-3">
@@ -346,7 +364,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
 
         {status === "ON_SALE" && (
           <div
-            className="mx-4 mb-4 rounded-xl p-4 flex items-center justify-between"
+            className="mx-4 mb-4 flex items-center justify-between rounded-xl p-4 lg:mx-0"
             style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
           >
             <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
@@ -375,11 +393,30 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
             </div>
           </div>
         )}
+
+        {recommendations.length > 0 && (
+          <section className="mx-4 mb-8 mt-10 border-t pt-8 lg:mx-0" style={{ borderColor: COLORS.border }}>
+            <p className="text-xs font-bold tracking-[0.16em]" style={{ color: COLORS.accent }}>
+              AI RECOMMEND
+            </p>
+            <h2 className="mt-2 font-serif text-2xl font-bold" style={{ color: COLORS.text }}>
+              함께 보면 좋은 빵
+            </h2>
+            <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>
+              추천 서비스 연결 전에는 가까운 드롭을 보여드립니다.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-2">
+              {recommendations.slice(0, 2).map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       {/* CTA */}
       <div
-        className="px-4 py-3 flex-shrink-0"
+        className="sticky bottom-0 z-20 flex-shrink-0 px-4 py-3 lg:static lg:rounded-2xl lg:border"
         style={{ background: COLORS.surface, borderTop: `1px solid ${COLORS.border}` }}
       >
         {purchaseErrorMessage && (
