@@ -14,7 +14,9 @@
 
 ## 로컬 개발
 
-백엔드가 먼저 떠 있어야 함 (`../beadv7_7_BakerySite6_BE`에서 `docker compose up -d` + `./gradlew bootRun`, 8080 포트).
+백엔드가 먼저 떠 있어야 함 (`../beadv7_7_BakerySite6_BE`에서 `docker compose up -d` + `./gradlew bootRun`).
+
+member-service/payment-service가 물리 분리되면서 백엔드가 3개 서비스로 나뉘었음(각각 8080/8081/8082 포트). 배포 환경은 nginx가 경로별로 알아서 라우팅하지만, 로컬은 nginx 없이 각 서비스 포트를 직접 호출하므로 프론트가 요청 경로에 따라 base URL을 나눠 쓴다(`lib/api/client.ts`의 `resolveBaseUrl`).
 
 ```bash
 npm install
@@ -24,6 +26,8 @@ npm run dev
 `.env.local`:
 ```
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+NEXT_PUBLIC_MEMBER_SERVICE_URL=http://localhost:8081
+NEXT_PUBLIC_PAYMENT_SERVICE_URL=http://localhost:8082
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=<백엔드 .env의 GOOGLE_CLIENT_ID와 동일한 값>
 ```
 

@@ -2,6 +2,24 @@ import { clearTokens, getTokens, setTokens } from "@/lib/auth/token-storage";
 import { ApiException, type ApiResponse } from "@/lib/api/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+const MEMBER_SERVICE_URL = process.env.NEXT_PUBLIC_MEMBER_SERVICE_URL;
+const PAYMENT_SERVICE_URL = process.env.NEXT_PUBLIC_PAYMENT_SERVICE_URL;
+
+/**
+ * member-service/payment-service가 물리 분리되면서 nginx도 경로별로 다른 백엔드로
+ * 프록시한다(nginx/default.conf 참고: /api/v1/auth/, /api/v1/members/ → member-service,
+ * /api/v1/deposit/, /api/v1/webhooks/ → payment-service, 나머지 → backend 모놀리스).
+ * 로컬 개발은 nginx 없이 각 서비스 포트를 직접 호출하므로 동일한 분기를 여기서 재현한다.
+ */
+function resolveBaseUrl(path: string): string | undefined {
+  if (path.startsWith("/api/v1/auth/") || path.startsWith("/api/v1/members/")) {
+    return MEMBER_SERVICE_URL;
+  }
+  if (path.startsWith("/api/v1/deposit/") || path.startsWith("/api/v1/webhooks/")) {
+    return PAYMENT_SERVICE_URL;
+  }
+  return BASE_URL;
+}
 
 let reissuePromise: Promise<string> | null = null;
 
@@ -26,7 +44,7 @@ async function reissueAccessToken(): Promise<string> {
   if (!stored) throw new ApiException("ME002", "유효하지 않은 인증 토큰입니다.");
 
   if (!reissuePromise) {
-    reissuePromise = fetch(`${BASE_URL}/api/v1/auth/reissue`, {
+    reissuePromise = fetch(`${MEMBER_SERVICE_URL}/api/v1/auth/reissue`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: stored.refreshToken }),
@@ -62,7 +80,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const send = (accessToken?: string) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
-    return fetch(`${BASE_URL}${path}`, {
+    return fetch(`${resolveBaseUrl(path)}${path}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
