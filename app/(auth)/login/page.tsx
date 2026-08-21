@@ -2,14 +2,12 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { COLORS } from "@/lib/theme";
 import { useAuth } from "@/lib/auth/auth-context";
 import { ApiException } from "@/lib/api/types";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 
 export default function LoginPage() {
-  const router = useRouter();
   const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,7 +20,13 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await login(email, password);
-      router.push("/");
+      // router.push 대신 하드 네비게이션 — AuthProvider가 루트(app/providers.tsx)에서
+      // 리마운트 없이 앱 전체 수명 동안 살아있어서, 소프트 네비게이션으로 ShopLayout이
+      // 마운트되는 시점엔 login()이 갱신한 컨텍스트가 아직 커밋되기 전이라 stale한
+      // isAuthenticated=false를 읽고 곧장 /login으로 되돌려보내는 레이스가 있었다.
+      // 하드 네비게이션은 AuthProvider를 처음부터 다시 마운트시켜 localStorage를
+      // 직접 읽으므로 이 레이스 자체가 사라진다.
+      window.location.href = "/";
     } catch (err) {
       setError(err instanceof ApiException ? err.message : "로그인에 실패했습니다.");
     } finally {
@@ -35,7 +39,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       await loginWithGoogle(idToken);
-      router.push("/");
+      window.location.href = "/";
     } catch (err) {
       setError(err instanceof ApiException ? err.message : "Google 로그인에 실패했습니다.");
     } finally {
