@@ -16,7 +16,10 @@ type CatalogKind = "DROP" | "GENERAL";
 
 export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
   const [sort, setSort] = useState<SortKey>("soon");
-  const [kind, setKind] = useState<CatalogKind>("DROP");
+  // /categories/[slug]로 들어온 경우(홈 화면 CATEGORY 타일)는 그 슬러그가 드롭 전용
+  // 추론 카테고리라 드롭 목록으로 시작한다. 슬러그 없이 /categories로 바로 들어오면
+  // 일반상품이 기본으로 보인다 — "드롭" 칩은 그 카테고리 줄 맨 오른쪽에만 노출.
+  const [kind, setKind] = useState<CatalogKind>(categorySlug ? "DROP" : "GENERAL");
   const [generalCategory, setGeneralCategory] = useState<ProductCategory | undefined>(undefined);
   const [generalPage, setGeneralPage] = useState(0);
   const selectedCategory = categorySlug ? findCategory(categorySlug) : undefined;
@@ -39,6 +42,7 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
   });
 
   function selectGeneralCategory(category: ProductCategory | undefined) {
+    setKind("GENERAL");
     setGeneralCategory(category);
     setGeneralPage(0);
   }
@@ -83,25 +87,9 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
         </p>
       </div>
 
-      <div className="mb-5 inline-flex rounded-full border p-1" style={{ borderColor: COLORS.border }}>
-        {(
-          [
-            { key: "DROP", label: "드롭" },
-            { key: "GENERAL", label: "일반상품" },
-          ] as const
-        ).map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => selectKind(key)}
-            className="rounded-full px-4 py-1.5 text-sm font-semibold"
-            style={{ background: kind === key ? COLORS.deep : "transparent", color: kind === key ? "#fff" : COLORS.text }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {kind === "DROP" ? (
+      {categorySlug ? (
+        // 홈 화면 CATEGORY 타일(/categories/[slug])로 들어온 경우 — 드롭 전용 추론
+        // 카테고리 체계 그대로 유지.
         <div className="mb-8 flex gap-2 overflow-x-auto pb-2">
           <Link
             href="/categories"
@@ -125,16 +113,22 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
           })}
         </div>
       ) : (
+        // 기본 진입(/categories) — 일반상품 카테고리(백엔드 enum)가 기본이고,
+        // 맨 오른쪽 "드롭" 칩을 누르면 한정 드롭 목록으로 전환된다.
         <div className="mb-8 flex gap-2 overflow-x-auto pb-2">
           <button
             onClick={() => selectGeneralCategory(undefined)}
             className="shrink-0 rounded-full border px-4 py-2 text-sm font-semibold"
-            style={{ background: !generalCategory ? COLORS.deep : COLORS.surface, color: !generalCategory ? "#fff" : COLORS.text, borderColor: COLORS.border }}
+            style={{
+              background: kind === "GENERAL" && !generalCategory ? COLORS.deep : COLORS.surface,
+              color: kind === "GENERAL" && !generalCategory ? "#fff" : COLORS.text,
+              borderColor: COLORS.border,
+            }}
           >
             전체
           </button>
           {Object.entries(PRODUCT_CATEGORY_LABEL).map(([value, label]) => {
-            const active = generalCategory === value;
+            const active = kind === "GENERAL" && generalCategory === value;
             return (
               <button
                 key={value}
@@ -146,6 +140,13 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
               </button>
             );
           })}
+          <button
+            onClick={() => selectKind("DROP")}
+            className="shrink-0 rounded-full border px-4 py-2 text-sm font-semibold"
+            style={{ background: kind === "DROP" ? COLORS.deep : COLORS.surface, color: kind === "DROP" ? "#fff" : COLORS.text, borderColor: COLORS.border }}
+          >
+            드롭
+          </button>
         </div>
       )}
 
