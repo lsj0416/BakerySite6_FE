@@ -6,6 +6,17 @@ import { COLORS } from "@/lib/theme";
 
 export function ProductCard({ product }: { product: CatalogProduct }) {
   const unavailable = product.status === "SOLD_OUT" || product.status === "CLOSED";
+  const badgeLabel = product.kind === "DROP" ? "한정 드롭" : "상시 판매";
+  const statusText =
+    product.kind === "DROP"
+      ? product.status === "ON_SALE"
+        ? `${product.remainQuantity}개 남음 · 매장 픽업`
+        : product.status === "SCHEDULED"
+          ? "오픈 예정 · 매장 픽업"
+          : "판매 종료"
+      : product.status === "ON_SALE"
+        ? `${product.remainQuantity}개 남음 · 매장 픽업`
+        : "품절";
 
   return (
     <Link href={product.href} className="group block min-w-0" aria-label={`${product.name} 상세 보기`}>
@@ -24,7 +35,7 @@ export function ProductCard({ product }: { product: CatalogProduct }) {
             className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide"
             style={{ background: COLORS.surface, color: COLORS.accent }}
           >
-            한정 드롭
+            {badgeLabel}
           </span>
           <span
             className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
@@ -42,11 +53,7 @@ export function ProductCard({ product }: { product: CatalogProduct }) {
             {product.price.toLocaleString()}원
           </p>
           <p className="mt-1 line-clamp-1 text-xs" style={{ color: COLORS.muted }}>
-            {product.status === "ON_SALE"
-              ? `${product.remainQuantity}개 남음 · 매장 픽업`
-              : product.status === "SCHEDULED"
-                ? "오픈 예정 · 매장 픽업"
-                : "판매 종료"}
+            {statusText}
           </p>
         </div>
       </article>

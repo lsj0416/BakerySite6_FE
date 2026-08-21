@@ -8,7 +8,8 @@ import { BreadBox } from "@/components/bread-box";
 import { ProductCard } from "@/components/product-card";
 import * as dropApi from "@/lib/api/drop";
 import * as paymentApi from "@/lib/api/payment";
-import { CATEGORIES, dropToCatalogProduct } from "@/lib/catalog";
+import * as productApi from "@/lib/api/product";
+import { CATEGORIES, dropToCatalogProduct, productToCatalogProduct } from "@/lib/catalog";
 import { msToHMS, pad } from "@/lib/format";
 import { COLORS } from "@/lib/theme";
 import { toDropStatus } from "@/lib/types";
@@ -24,6 +25,14 @@ export default function HomePage() {
   const dropsQuery = useQuery({ queryKey: ["upcoming-drops"], queryFn: () => dropApi.getUpcomingDrops(30) });
   const drops = useMemo(() => dropsQuery.data ?? [], [dropsQuery.data]);
   const products = useMemo(() => drops.map(dropToCatalogProduct), [drops]);
+  const generalProductsQuery = useQuery({
+    queryKey: ["general-products"],
+    queryFn: () => productApi.getGeneralProductList({ size: 8 }),
+  });
+  const generalProducts = useMemo(
+    () => (generalProductsQuery.data?.content ?? []).map(productToCatalogProduct),
+    [generalProductsQuery.data],
+  );
   const featured = drops[0];
   const featuredStatus = featured ? toDropStatus(featured.dropStatus, featured.remainQuantity) : null;
   const featuredTarget = featured
@@ -113,6 +122,36 @@ export default function HomePage() {
             <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.bg, color: COLORS.muted }}>추천할 수 있는 상품을 준비하고 있어요.</p>
           )}
         </div>
+      </section>
+
+      <section className="mx-auto max-w-[1200px] px-4 py-12 md:px-6 md:py-16">
+        <div className="mb-7 flex items-end justify-between">
+          <div>
+            <p className="text-xs font-bold tracking-[0.18em]" style={{ color: COLORS.accent }}>ALWAYS AVAILABLE</p>
+            <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>상시 판매</h2>
+            <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>언제든 주문할 수 있는 동네 베이커리의 상시 판매 상품</p>
+          </div>
+          <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>전체보기 <ArrowRight size={15} /></Link>
+        </div>
+        {generalProductsQuery.isLoading ? (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="animate-pulse">
+                <div className="aspect-[4/5] rounded-2xl" style={{ background: COLORS.accentSoft }} />
+                <div className="mt-3 h-4 w-3/4 rounded" style={{ background: COLORS.border }} />
+              </div>
+            ))}
+          </div>
+        ) : generalProductsQuery.isError ? (
+          <div className="rounded-2xl px-5 py-10 text-center" style={{ background: COLORS.surface }}>
+            <p className="text-sm" style={{ color: COLORS.muted }}>상시 판매 상품을 불러오지 못했습니다.</p>
+            <button onClick={() => generalProductsQuery.refetch()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-bold text-white" style={{ background: COLORS.accent }}>다시 시도</button>
+          </div>
+        ) : generalProducts.length > 0 ? (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">{generalProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div>
+        ) : (
+          <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.surface, color: COLORS.muted }}>등록된 상시 판매 상품이 없습니다.</p>
+        )}
       </section>
 
       <section id="drops" className="scroll-mt-36 bg-[#3B2416] py-12 text-white md:py-16">

@@ -22,22 +22,6 @@ export function createCart(req: CreateCartRequest) {
   });
 }
 
-export interface Cart {
-  cartId: number;
-  drop: { dropId: number; dropName: string; price: number; imageUrl?: string };
-  seller: { sellerId: number; sellerName: string | null };
-  quantity: number;
-  estimatedAmount: number;
-  pickupDates: string[];
-  selectedPickupDate: string | null;
-  expiresAt: string;
-  remainingSeconds: number;
-}
-
-export function getCart() {
-  return apiRequest<Cart>("/api/v1/cart");
-}
-
 export interface SelectPickupDateResponse {
   cartId: number;
   pickupDate: string;
@@ -71,4 +55,88 @@ export function deleteCartBeacon() {
     headers: { Authorization: `Bearer ${stored.accessToken}` },
     keepalive: true,
   }).catch(() => {});
+}
+
+// --- 일반상품 다중 아이템 장바구니 (/api/v1/cart/items) ---
+// 위 드롭 전용 단일 장바구니(POST /api/v1/cart 등)와는 별개 도메인이다. 백엔드가
+// 최근 다중 아이템 장바구니로 리팩터링하면서 드롭용 구 API를 대체하지 않고 남겨뒀는데,
+// 그 구 API는 이제 전부 404가 난다(docs/backend-bug-reports-v2.md §5 참고).
+
+export interface AddCartItemRequest {
+  productId: number;
+  quantity: number;
+  pickUpDate?: string; // YYYY-MM-DD, 담을 때는 생략 가능
+}
+
+export interface CartItem {
+  cartId: number;
+  cartItemId: number;
+  productId: number;
+  quantity: number;
+  pickUpDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function addCartItem(body: AddCartItemRequest) {
+  return apiRequest<CartItem>("/api/v1/cart/items", { method: "POST", body });
+}
+
+export type CartItemStatus =
+  | "ORDERABLE"
+  | "PRODUCT_DELETED"
+  | "SOLD_OUT"
+  | "INSUFFICIENT_STOCK"
+  | "PICKUP_DATE_UNSELECTED"
+  | "PICKUP_DATE_UNAVAILABLE";
+
+export interface CartDetailItem {
+  cartItemId: number;
+  productId: number;
+  sellerId: number;
+  productName: string | null;
+  bakeryName: string;
+  imageUrl: string;
+  price: number;
+  addedPrice: number | null;
+  priceChanged: boolean;
+  quantity: number;
+  estimatedAmount: number;
+  pickUpDate: string | null;
+  pickUpAvailableDates: string[];
+  remainQuantity: number;
+  orderable: boolean;
+  status: CartItemStatus;
+}
+
+export interface Cart {
+  cartId: number | null;
+  items: CartDetailItem[];
+  totalAmount: number;
+}
+
+export function getCart() {
+  return apiRequest<Cart>("/api/v1/cart");
+}
+
+export function updateCartItemQuantity(cartItemId: number, quantity: number) {
+  return apiRequest<CartItem>(`/api/v1/cart/items/${cartItemId}/quantity`, {
+    method: "PATCH",
+    body: { quantity },
+  });
+}
+
+export function updateCartItemPickupDate(cartItemId: number, pickUpDate: string) {
+  return apiRequest<CartItem>(`/api/v1/cart/items/${cartItemId}/pickup-date`, {
+    method: "PATCH",
+    body: { pickUpDate },
+  });
+}
+
+export function removeCartItem(cartItemId: number) {
+  return apiRequest<void>(`/api/v1/cart/items/${cartItemId}`, { method: "DELETE" });
+}
+
+export function clearCartItems() {
+  return apiRequest<void>("/api/v1/cart/items", { method: "DELETE" });
 }

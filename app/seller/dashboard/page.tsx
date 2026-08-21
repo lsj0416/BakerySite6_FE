@@ -8,6 +8,7 @@ import { BackHeader } from "@/components/back-header";
 import { COLORS } from "@/lib/theme";
 import * as sellerApi from "@/lib/api/seller";
 import * as dropApi from "@/lib/api/drop";
+import * as productApi from "@/lib/api/product";
 import * as settlementApi from "@/lib/api/settlement";
 import * as sellerOrderApi from "@/lib/api/seller-order";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -68,6 +69,12 @@ export default function SellerDashboardPage() {
     enabled: isApproved,
   });
 
+  const myProductsQuery = useQuery({
+    queryKey: ["myProducts"],
+    queryFn: () => productApi.getMyProducts(0, 100),
+    enabled: isApproved,
+  });
+
   const settlementsQuery = useQuery({
     queryKey: ["mySettlements"],
     queryFn: settlementApi.getMySettlements,
@@ -107,9 +114,20 @@ export default function SellerDashboardPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myDrops"] }),
   });
 
+  const productDeleteMutation = useMutation({
+    mutationFn: (productId: number) => productApi.deleteProduct(productId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myProducts"] }),
+  });
+
   function handleDelete(dropId: number) {
     if (window.confirm("이 드롭을 삭제하시겠습니까?")) {
       deleteMutation.mutate(dropId);
+    }
+  }
+
+  function handleProductDelete(productId: number) {
+    if (window.confirm("이 일반상품을 삭제하시겠습니까?")) {
+      productDeleteMutation.mutate(productId);
     }
   }
 
@@ -321,6 +339,89 @@ export default function SellerDashboardPage() {
           >
             판매내역
           </Link>
+        )}
+
+        {isApproved && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
+                내 상품
+              </span>
+              <Link
+                href="/seller/products/new"
+                className="text-xs font-semibold"
+                style={{ color: COLORS.accent }}
+              >
+                + 새 상품 등록
+              </Link>
+            </div>
+
+            {myProductsQuery.isLoading && (
+              <p className="text-sm" style={{ color: COLORS.muted }}>
+                불러오는 중...
+              </p>
+            )}
+            {myProductsQuery.isError && (
+              <p className="text-sm" style={{ color: "#E0554F" }}>
+                상품 목록을 불러오지 못했습니다.
+              </p>
+            )}
+            {myProductsQuery.data?.content.length === 0 && (
+              <p className="text-sm" style={{ color: COLORS.muted }}>
+                등록한 일반상품이 없습니다.
+              </p>
+            )}
+
+            {myProductsQuery.data?.content.map((product) => (
+              <div
+                key={product.productId}
+                className="rounded-xl p-4 flex flex-col gap-2"
+                style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
+                    {product.name}
+                  </span>
+                  <span
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded shrink-0"
+                    style={{ background: COLORS.accentSoft, color: COLORS.accent }}
+                  >
+                    {productApi.PRODUCT_CATEGORY_LABEL[product.category]}
+                  </span>
+                </div>
+                <p className="text-xs" style={{ color: COLORS.muted }}>
+                  {product.price.toLocaleString()}원 · 재고 {product.remainQuantity}/
+                  {product.totalQuantity}
+                </p>
+
+                <div className="flex gap-2 pt-2" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                  <Link
+                    href={`/seller/products/${product.productId}/edit`}
+                    className="flex-1 py-2 rounded-lg text-sm text-center"
+                    style={{ border: `1px solid ${COLORS.border}`, color: COLORS.text }}
+                  >
+                    수정
+                  </Link>
+                  <button
+                    onClick={() => handleProductDelete(product.productId)}
+                    disabled={productDeleteMutation.isPending}
+                    className="flex-1 py-2 rounded-lg text-sm disabled:opacity-60"
+                    style={{ border: `1px solid ${COLORS.border}`, color: "#E0554F" }}
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {productDeleteMutation.isError && (
+              <p className="text-xs" style={{ color: "#E0554F" }}>
+                {productDeleteMutation.error instanceof ApiException
+                  ? productDeleteMutation.error.message
+                  : "상품 삭제에 실패했습니다."}
+              </p>
+            )}
+          </div>
         )}
 
         {isApproved && (

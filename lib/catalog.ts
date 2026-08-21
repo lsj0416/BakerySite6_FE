@@ -1,4 +1,6 @@
 import type { DropProductInfoResponse } from "@/lib/api/drop";
+import type { ProductCategory, ProductInfoResponse } from "@/lib/api/product";
+import { productImageUrl } from "@/lib/api/product";
 import { toDropStatus, type DropStatus } from "@/lib/types";
 
 export const CATEGORIES = [
@@ -54,18 +56,19 @@ export const CATEGORIES = [
 
 export type CategorySlug = (typeof CATEGORIES)[number]["slug"];
 
-export interface CatalogProduct {
+interface BaseCatalogProduct {
   id: number;
   name: string;
   description: string;
   imageUrl: string;
   price: number;
   remainQuantity: number;
-  status: DropStatus;
-  category: CategorySlug;
   href: string;
-  kind: "DROP";
 }
+
+export type CatalogProduct =
+  | (BaseCatalogProduct & { kind: "DROP"; status: DropStatus; category: CategorySlug })
+  | (BaseCatalogProduct & { kind: "GENERAL"; status: "ON_SALE" | "SOLD_OUT"; category: ProductCategory });
 
 export function findCategory(slug: string) {
   return CATEGORIES.find((category) => category.slug === slug);
@@ -92,6 +95,21 @@ export function dropToCatalogProduct(drop: DropProductInfoResponse): CatalogProd
     category: inferCategory(drop.name, drop.description),
     href: `/drops/${drop.dropId}`,
     kind: "DROP",
+  };
+}
+
+export function productToCatalogProduct(product: ProductInfoResponse): CatalogProduct {
+  return {
+    id: product.productId,
+    name: product.name,
+    description: product.description,
+    imageUrl: productImageUrl(product.imageUrl),
+    price: product.price,
+    remainQuantity: product.remainQuantity,
+    status: product.remainQuantity > 0 ? "ON_SALE" : "SOLD_OUT",
+    category: product.category,
+    href: `/products/${product.productId}`,
+    kind: "GENERAL",
   };
 }
 

@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, Search, ShoppingBag, UserRound, Wallet } from "lucide-react";
+import { Bookmark, Search, ShoppingBag, ShoppingCart, UserRound, Wallet } from "lucide-react";
 import { CATEGORIES } from "@/lib/catalog";
 import { COLORS } from "@/lib/theme";
 
@@ -29,6 +29,14 @@ export function SiteHeader() {
         </Link>
 
         <div className="flex items-center justify-self-end lg:hidden">
+          <Link
+            href="/cart"
+            className="flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ color: COLORS.text, background: COLORS.accentSoft }}
+            aria-label="장바구니"
+          >
+            <ShoppingCart size={18} />
+          </Link>
           <Link
             href="/wallet"
             className="flex h-10 w-10 items-center justify-center rounded-full"
@@ -66,6 +74,7 @@ export function SiteHeader() {
 
         <nav className="hidden shrink-0 items-center gap-1 lg:flex" aria-label="사용자 메뉴">
           {[
+            { href: "/cart", label: "장바구니", icon: ShoppingCart },
             { href: "/wallet", label: "예치금", icon: Wallet },
             { href: "/wishlist", label: "찜", icon: Bookmark },
             { href: "/orders", label: "주문", icon: ShoppingBag },

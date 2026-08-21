@@ -17,7 +17,8 @@ export default function ShopLayout({ children }: { children: React.ReactNode }) 
     pathname === "/" ||
     pathname === "/search" ||
     pathname.startsWith("/categories") ||
-    pathname.startsWith("/drops/");
+    pathname.startsWith("/drops/") ||
+    pathname.startsWith("/products/");
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
