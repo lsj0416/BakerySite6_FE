@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
-import { Check, ChevronLeft, Minus, Plus } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Check, ChevronLeft, Minus, Plus, Sparkles } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
+import { ProductCard } from "@/components/product-card";
 import * as cartApi from "@/lib/api/cart";
 import * as productApi from "@/lib/api/product";
 import { productImageUrl, PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
+import * as recommendationApi from "@/lib/api/recommendation";
+import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { ApiException } from "@/lib/api/types";
 import { fmtPickup } from "@/lib/format";
 
@@ -42,6 +45,19 @@ export function ProductDetailView({
       : addToCartMutation.isError
         ? "장바구니에 담지 못했습니다."
         : null;
+
+  const recommendationsQuery = useQuery({
+    queryKey: ["recommendations", 4],
+    queryFn: () => recommendationApi.getRecommendations(4),
+  });
+  const recommendations = useMemo(
+    () =>
+      (recommendationsQuery.data?.items ?? [])
+        .filter((item) => item.productId !== productId)
+        .map(recommendationItemToCatalogProduct)
+        .slice(0, 3),
+    [productId, recommendationsQuery.data],
+  );
 
   return (
     <div
@@ -182,6 +198,22 @@ export function ProductDetailView({
               </button>
             </div>
           </div>
+        )}
+
+        {recommendations.length > 0 && (
+          <section className="mx-4 mb-8 mt-10 border-t pt-8 lg:mx-0" style={{ borderColor: COLORS.border }}>
+            <p className="flex items-center gap-1.5 text-xs font-bold tracking-[0.16em]" style={{ color: COLORS.accent }}>
+              <Sparkles size={13} /> AI RECOMMEND
+            </p>
+            <h2 className="mt-2 font-serif text-2xl font-bold" style={{ color: COLORS.text }}>
+              이런 상품은 어때요
+            </h2>
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
+              {recommendations.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </section>
         )}
       </div>
 

@@ -8,19 +8,31 @@ import { ProductCard } from "@/components/product-card";
 import * as dropApi from "@/lib/api/drop";
 import * as productApi from "@/lib/api/product";
 import { PRODUCT_CATEGORY_LABEL, type ProductCategory } from "@/lib/api/product";
-import { CATEGORIES, dropToCatalogProduct, findCategory, productToCatalogProduct } from "@/lib/catalog";
+import { CATEGORIES, dropToCatalogProduct, filterProducts, findCategory, productToCatalogProduct } from "@/lib/catalog";
 import { COLORS } from "@/lib/theme";
 
-type SortKey = "soon" | "price-low" | "price-high";
+type SortKey = "soon" | "new" | "price-low" | "price-high";
 type CatalogKind = "DROP" | "GENERAL";
 
-export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
-  const [sort, setSort] = useState<SortKey>("soon");
+export function CatalogBrowser({
+  categorySlug,
+  keyword,
+  initialCategory,
+  initialKind,
+  initialSort,
+}: {
+  categorySlug?: string;
+  keyword?: string;
+  initialCategory?: ProductCategory;
+  initialKind?: "DROP" | "GENERAL";
+  initialSort?: SortKey;
+}) {
+  const [sort, setSort] = useState<SortKey>(initialSort ?? "soon");
   // /categories/[slug]로 들어온 경우(홈 화면 CATEGORY 타일)는 그 슬러그가 드롭 전용
   // 추론 카테고리라 드롭 목록으로 시작한다. 슬러그 없이 /categories로 바로 들어오면
   // 일반상품이 기본으로 보인다 — "드롭" 칩은 그 카테고리 줄 맨 오른쪽에만 노출.
-  const [kind, setKind] = useState<CatalogKind>(categorySlug ? "DROP" : "GENERAL");
-  const [generalCategory, setGeneralCategory] = useState<ProductCategory | undefined>(undefined);
+  const [kind, setKind] = useState<CatalogKind>(categorySlug ? "DROP" : initialKind ?? "GENERAL");
+  const [generalCategory, setGeneralCategory] = useState<ProductCategory | undefined>(initialCategory);
   const [generalPage, setGeneralPage] = useState(0);
   const selectedCategory = categorySlug ? findCategory(categorySlug) : undefined;
 
@@ -35,8 +47,15 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
   // 필터가 바뀔 때 generalPage를 0으로 되돌리는 건 필터 버튼 onClick에서 직접 처리한다
   // (useEffect로 하면 react-hooks/set-state-in-effect 린트 규칙에 걸림).
   const generalProductsQuery = useQuery({
-    queryKey: ["general-products", generalCategory, generalPage],
-    queryFn: () => productApi.getGeneralProductList({ category: generalCategory, page: generalPage, size: 20 }),
+    queryKey: ["general-products", generalCategory, keyword, generalPage, sort],
+    queryFn: () =>
+      productApi.getGeneralProductList({
+        category: generalCategory,
+        keyword,
+        page: generalPage,
+        size: 20,
+        sort: sort === "new" ? "id,desc" : undefined,
+      }),
     enabled: kind === "GENERAL",
     placeholderData: keepPreviousData,
   });
@@ -55,6 +74,9 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
   const products = useMemo(() => {
     if (kind === "GENERAL") {
       const items = (generalProductsQuery.data?.content ?? []).map(productToCatalogProduct);
+      // "new"는 서버가 sort=id,desc로 이미 정렬해서 내려주므로 그대로 둔다(클라이언트에서
+      // 다시 정렬하면 여러 페이지에 걸쳐 정렬이 어긋나던 예전 버그가 재발한다).
+      if (sort === "new") return items;
       return [...items].sort((a, b) => {
         if (sort === "price-low") return a.price - b.price;
         if (sort === "price-high") return b.price - a.price;
@@ -62,13 +84,14 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
       });
     }
     const items = (dropsQuery.data ?? []).map(dropToCatalogProduct);
-    const filtered = selectedCategory ? items.filter((item) => item.category === selectedCategory.slug) : items;
+    const categoryFiltered = selectedCategory ? items.filter((item) => item.category === selectedCategory.slug) : items;
+    const filtered = keyword ? filterProducts(categoryFiltered, keyword) : categoryFiltered;
     return [...filtered].sort((a, b) => {
       if (sort === "price-low") return a.price - b.price;
       if (sort === "price-high") return b.price - a.price;
       return a.id - b.id;
     });
-  }, [kind, dropsQuery.data, generalProductsQuery.data, selectedCategory, sort]);
+  }, [kind, dropsQuery.data, generalProductsQuery.data, selectedCategory, keyword, sort]);
 
   const listQuery = kind === "GENERAL" ? generalProductsQuery : dropsQuery;
   const generalPageInfo = generalProductsQuery.data?.page;
@@ -80,10 +103,12 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
           OPENBAKE CATALOG
         </p>
         <h1 className="font-serif text-3xl font-bold md:text-5xl" style={{ color: COLORS.text }}>
-          {selectedCategory?.label ?? "베이커리 전체보기"}
+          {keyword ? `'${keyword}' 검색 결과` : selectedCategory?.label ?? "베이커리 전체보기"}
         </h1>
         <p className="mt-3 max-w-xl text-sm leading-6 md:text-base" style={{ color: COLORS.muted }}>
-          {selectedCategory?.description ?? "동네 베이커리의 개성 있는 빵과 한정 드롭을 카테고리별로 둘러보세요."}
+          {keyword
+            ? "찾으시는 상품과 비슷한 결과를 함께 보여드려요."
+            : selectedCategory?.description ?? "동네 베이커리의 개성 있는 빵과 한정 드롭을 카테고리별로 둘러보세요."}
         </p>
       </div>
 
@@ -162,6 +187,7 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
           <span className="sr-only">정렬 방식</span>
           <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="appearance-none bg-transparent py-2 pl-2 pr-7 text-sm font-medium outline-none">
             <option value="soon">{kind === "DROP" ? "오픈 임박순" : "기본순"}</option>
+            <option value="new">최신순</option>
             <option value="price-low">낮은 가격순</option>
             <option value="price-high">높은 가격순</option>
           </select>
@@ -189,8 +215,15 @@ export function CatalogBrowser({ categorySlug }: { categorySlug?: string }) {
         <div className="rounded-2xl border bg-white px-6 py-16 text-center" style={{ borderColor: COLORS.border }}>
           <p className="text-3xl">🥖</p>
           <p className="mt-3 font-semibold" style={{ color: COLORS.text }}>
-            {kind === "DROP" ? "이 카테고리에 예정된 상품이 없습니다." : "이 카테고리에 등록된 상품이 없습니다."}
+            {keyword
+              ? "일치하는 상품이 없습니다."
+              : kind === "DROP"
+                ? "이 카테고리에 예정된 상품이 없습니다."
+                : "이 카테고리에 등록된 상품이 없습니다."}
           </p>
+          {keyword && (
+            <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>다른 단어로 검색하거나 카테고리를 둘러보세요.</p>
+          )}
           <Link href="/categories" className="mt-4 inline-block text-sm font-bold underline" style={{ color: COLORS.accent }}>전체 상품 보기</Link>
         </div>
       ) : (

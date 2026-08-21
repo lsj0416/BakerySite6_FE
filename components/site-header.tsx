@@ -3,8 +3,8 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, Search, ShoppingBag, ShoppingCart, UserRound, Wallet } from "lucide-react";
-import { CATEGORIES } from "@/lib/catalog";
+import { Bookmark, ChevronDown, Search, ShoppingBag, ShoppingCart, UserRound, Wallet } from "lucide-react";
+import { PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
 import { COLORS } from "@/lib/theme";
 
 export function SiteHeader() {
@@ -94,17 +94,35 @@ export function SiteHeader() {
       </div>
 
       <nav className="hidden border-t lg:block" style={{ borderColor: COLORS.border }} aria-label="상품 카테고리">
-        <div className="mx-auto flex h-12 max-w-[1200px] items-center gap-7 overflow-x-auto px-6 text-sm font-semibold">
-          <Link href="/categories" style={{ color: COLORS.accent }}>
-            전체 카테고리
-          </Link>
-          {CATEGORIES.map((category) => (
-            <Link key={category.slug} href={`/categories/${category.slug}`} className="whitespace-nowrap hover:underline" style={{ color: COLORS.text }}>
-              {category.label}
+        <div className="mx-auto flex h-12 max-w-[1200px] items-center gap-7 px-6 text-sm font-semibold">
+          <div className="group relative flex h-full items-center">
+            <Link href="/categories" className="flex items-center gap-1" style={{ color: COLORS.accent }}>
+              전체 상품보기 <ChevronDown size={14} />
             </Link>
-          ))}
-          <Link href="/#drops" className="ml-auto whitespace-nowrap" style={{ color: COLORS.deep }}>
-            오픈 예정 드롭
+            <div
+              className="absolute left-0 top-full hidden w-56 rounded-xl border bg-white p-2 shadow-lg group-hover:block"
+              style={{ borderColor: COLORS.border }}
+            >
+              {Object.entries(PRODUCT_CATEGORY_LABEL).map(([value, label]) => (
+                <Link
+                  key={value}
+                  href={`/categories?category=${value}`}
+                  className="block rounded-lg px-3 py-2 hover:bg-[#F3E9DE]"
+                  style={{ color: COLORS.text }}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          </div>
+          <Link href="/recommended" style={{ color: COLORS.text }}>
+            추천 상품
+          </Link>
+          <Link href="/categories?sort=new" style={{ color: COLORS.text }}>
+            신상품
+          </Link>
+          <Link href="/categories?kind=DROP" className="ml-auto" style={{ color: COLORS.deep }}>
+            드롭
           </Link>
         </div>
       </nav>

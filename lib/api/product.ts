@@ -109,6 +109,8 @@ export interface GetGeneralProductListParams {
   category?: ProductCategory;
   page?: number;
   size?: number;
+  /** 예: "id,desc" — Spring Pageable이 sort 쿼리 파라미터를 그대로 바인딩한다. */
+  sort?: string;
 }
 
 /** GET /api/v1/products/product-list — 홈/카테고리 화면용 공개 목록. sort 기본값 category ASC. */
@@ -116,6 +118,7 @@ export function getGeneralProductList(params: GetGeneralProductListParams = {}) 
   const query = new URLSearchParams();
   if (params.keyword) query.set("keyword", params.keyword);
   if (params.category) query.set("category", params.category);
+  if (params.sort) query.set("sort", params.sort);
   query.set("page", String(params.page ?? 0));
   query.set("size", String(params.size ?? 20));
   return apiRequest<ProductPagedModel>(`/api/v1/products/product-list?${query}`);

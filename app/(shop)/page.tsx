@@ -9,7 +9,8 @@ import { ProductCard } from "@/components/product-card";
 import * as dropApi from "@/lib/api/drop";
 import * as paymentApi from "@/lib/api/payment";
 import * as productApi from "@/lib/api/product";
-import { CATEGORIES, dropToCatalogProduct, productToCatalogProduct } from "@/lib/catalog";
+import * as recommendationApi from "@/lib/api/recommendation";
+import { CATEGORIES, dropToCatalogProduct, productToCatalogProduct, recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { msToHMS, pad } from "@/lib/format";
 import { COLORS } from "@/lib/theme";
 import { toDropStatus } from "@/lib/types";
@@ -32,6 +33,14 @@ export default function HomePage() {
   const generalProducts = useMemo(
     () => (generalProductsQuery.data?.content ?? []).map(productToCatalogProduct),
     [generalProductsQuery.data],
+  );
+  const recommendationsQuery = useQuery({
+    queryKey: ["recommendations", 4],
+    queryFn: () => recommendationApi.getRecommendations(4),
+  });
+  const recommendedProducts = useMemo(
+    () => (recommendationsQuery.data?.items ?? []).map(recommendationItemToCatalogProduct),
+    [recommendationsQuery.data],
   );
   const featured = drops[0];
   const featuredStatus = featured ? toDropStatus(featured.dropStatus, featured.remainQuantity) : null;
@@ -105,19 +114,19 @@ export default function HomePage() {
             <div>
               <p className="flex items-center gap-1.5 text-xs font-bold tracking-[0.16em]" style={{ color: COLORS.accent }}><Sparkles size={14} /> AI RECOMMEND</p>
               <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>취향에 맞을 것 같은 빵</h2>
-              <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>추천 서비스 연결 전에는 가까운 드롭을 우선 보여줍니다.</p>
+              <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>회원님의 조회·장바구니 기록을 바탕으로 골라봤어요.</p>
             </div>
             <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>더 보기 <ArrowRight size={15} /></Link>
           </div>
-          {dropsQuery.isLoading ? (
+          {recommendationsQuery.isLoading ? (
             <p className="py-16 text-center text-sm" style={{ color: COLORS.muted }}>추천 상품을 준비 중입니다...</p>
-          ) : dropsQuery.isError ? (
+          ) : recommendationsQuery.isError ? (
             <div className="rounded-2xl px-5 py-10 text-center" style={{ background: COLORS.bg }}>
-              <p className="text-sm" style={{ color: COLORS.muted }}>추천 상품을 불러오지 못했습니다.</p>
-              <button onClick={() => dropsQuery.refetch()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-bold text-white" style={{ background: COLORS.accent }}>다시 시도</button>
+              <p className="text-sm" style={{ color: COLORS.muted }}>추천을 준비하고 있어요.</p>
+              <button onClick={() => recommendationsQuery.refetch()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-bold text-white" style={{ background: COLORS.accent }}>다시 시도</button>
             </div>
-          ) : products.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">{products.slice(0, 4).map((product) => <ProductCard key={product.id} product={product} />)}</div>
+          ) : recommendedProducts.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">{recommendedProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div>
           ) : (
             <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.bg, color: COLORS.muted }}>추천할 수 있는 상품을 준비하고 있어요.</p>
           )}

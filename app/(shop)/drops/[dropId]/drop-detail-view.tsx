@@ -11,9 +11,10 @@ import { ProductCard } from "@/components/product-card";
 import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
 import * as cartApi from "@/lib/api/cart";
+import * as recommendationApi from "@/lib/api/recommendation";
 import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
-import { dropToCatalogProduct } from "@/lib/catalog";
+import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { pad, msToHMS, fmtDateTime, fmtPickup } from "@/lib/format";
 import {
   EMPTY_WISHLIST,
@@ -103,16 +104,12 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
   });
 
   const recommendationsQuery = useQuery({
-    queryKey: ["upcoming-drops", 30],
-    queryFn: () => dropApi.getUpcomingDrops(30),
+    queryKey: ["recommendations", 3],
+    queryFn: () => recommendationApi.getRecommendations(3),
   });
   const recommendations = useMemo(
-    () =>
-      (recommendationsQuery.data ?? [])
-        .filter((item) => item.dropId !== dropId)
-        .map(dropToCatalogProduct)
-        .slice(0, 3),
-    [dropId, recommendationsQuery.data],
+    () => (recommendationsQuery.data?.items ?? []).map(recommendationItemToCatalogProduct),
+    [recommendationsQuery.data],
   );
 
   useEffect(() => {
@@ -403,7 +400,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
               함께 보면 좋은 빵
             </h2>
             <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>
-              추천 서비스 연결 전에는 가까운 드롭을 보여드립니다.
+              회원님의 취향에 맞을 것 같은 상시 판매 상품이에요.
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-2">
               {recommendations.slice(0, 2).map((product) => (

@@ -1,6 +1,7 @@
 import type { DropProductInfoResponse } from "@/lib/api/drop";
 import type { ProductCategory, ProductInfoResponse } from "@/lib/api/product";
 import { productImageUrl } from "@/lib/api/product";
+import type { RecommendationItem } from "@/lib/api/recommendation";
 import { toDropStatus, type DropStatus } from "@/lib/types";
 
 export const CATEGORIES = [
@@ -109,6 +110,21 @@ export function productToCatalogProduct(product: ProductInfoResponse): CatalogPr
     status: product.remainQuantity > 0 ? "ON_SALE" : "SOLD_OUT",
     category: product.category,
     href: `/products/${product.productId}`,
+    kind: "GENERAL",
+  };
+}
+
+export function recommendationItemToCatalogProduct(item: RecommendationItem): CatalogProduct {
+  return {
+    id: item.productId,
+    name: item.name,
+    description: "", // 추천 응답엔 설명 필드가 없음 — ProductCard가 설명을 안 쓰므로 문제 없음
+    imageUrl: productImageUrl(item.imageUrl),
+    price: item.price,
+    remainQuantity: item.remainQuantity,
+    status: item.remainQuantity > 0 ? "ON_SALE" : "SOLD_OUT",
+    category: item.category,
+    href: `/products/${item.productId}`,
     kind: "GENERAL",
   };
 }
