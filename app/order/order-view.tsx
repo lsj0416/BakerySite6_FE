@@ -10,6 +10,7 @@ import * as dropApi from "@/lib/api/drop";
 import * as cartApi from "@/lib/api/cart";
 import * as orderApi from "@/lib/api/order";
 import * as paymentApi from "@/lib/api/payment";
+import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { fmtPickup } from "@/lib/format";
 
@@ -130,7 +131,7 @@ export function OrderView() {
         >
           <BreadBox
             className="w-[72px] h-[72px] rounded-lg flex-shrink-0"
-            src={drop.imageUrl}
+            src={productImageUrl(drop.imageUrl)}
             label={drop.name}
           />
           <div className="flex-1">

@@ -7,6 +7,7 @@ import { BackHeader } from "@/components/back-header";
 import { BreadBox } from "@/components/bread-box";
 import { COLORS } from "@/lib/theme";
 import * as cartApi from "@/lib/api/cart";
+import { productImageUrl } from "@/lib/api/product";
 import { fmtPickup } from "@/lib/format";
 
 const STATUS_LABEL: Record<cartApi.CartItemStatus, string> = {
@@ -79,7 +80,7 @@ export default function CartPage() {
                   }}
                 >
                   <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg">
-                    <BreadBox label={item.productName ?? ""} src={item.imageUrl} className="h-full w-full" dim={disabled} />
+                    <BreadBox label={item.productName ?? ""} src={productImageUrl(item.imageUrl)} className="h-full w-full" dim={disabled} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs" style={{ color: COLORS.muted }}>{item.bakeryName}</p>
