@@ -12,11 +12,10 @@ import { ApiException } from "@/lib/api/types";
 import { ORDER_STATUS_LABEL } from "@/lib/types";
 import { fmtDateTime, fmtPickup } from "@/lib/format";
 
-type FilterKey = "전체" | orderApi.OrderState;
+type FilterKey = "전체" | orderApi.OrderHistoryState;
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "전체", label: "전체" },
   { key: "PAID", label: "픽업대기" },
-  { key: "CONFIRMED", label: "구매확정" },
   { key: "CANCELED", label: "취소" },
 ];
 
@@ -50,7 +49,7 @@ export default function SellerOrdersPage() {
   });
 
   const confirmMutation = useMutation({
-    mutationFn: (orderId: number) => orderApi.confirmOrder(orderId),
+    mutationFn: (orderItemId: number) => orderApi.confirmOrderItem(orderItemId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sellerOrders"] }),
   });
 
@@ -59,9 +58,9 @@ export default function SellerOrdersPage() {
     setPage(0);
   }
 
-  function handleConfirm(orderId: number) {
+  function handleConfirm(orderItemId: number) {
     if (window.confirm("구매를 확정하시겠습니까? 확정 후에는 취소할 수 없습니다.")) {
-      confirmMutation.mutate(orderId);
+      confirmMutation.mutate(orderItemId);
     }
   }
 
@@ -133,29 +132,48 @@ export default function SellerOrdersPage() {
                 <div className="flex justify-between items-center">
                   <OrderStatusBadge status={ORDER_STATUS_LABEL[order.orderState]} />
                   <span className="text-xs" style={{ color: COLORS.muted }}>
-                    {fmtDateTime(order.paidAt)} 결제
+                    {order.paidAt ? `${fmtDateTime(order.paidAt)} 결제` : ""}
                   </span>
                 </div>
-                <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                  {order.dropName} {order.quantity}개
-                </p>
                 <p className="text-xs" style={{ color: COLORS.muted }}>
-                  구매자 {order.buyerName} · {order.totalAmount.toLocaleString()}원
-                </p>
-                <p className="text-xs" style={{ color: COLORS.muted }}>
-                  {fmtPickup(order.pickupDate)} 픽업
+                  구매자 {order.buyerName} · 판매분 {order.sellerAmount.toLocaleString()}원
                 </p>
 
-                {order.orderState === "PAID" && (
-                  <button
-                    onClick={() => handleConfirm(order.orderId)}
-                    disabled={confirmMutation.isPending}
-                    className="w-full py-2 rounded-lg text-sm font-semibold mt-1 disabled:opacity-60"
-                    style={{ background: COLORS.accentSoft, color: COLORS.accent }}
-                  >
-                    구매확정
-                  </button>
-                )}
+                <div className="flex flex-col gap-2 mt-1">
+                  {order.items.map((item) => (
+                    <div
+                      key={item.orderItemId}
+                      className="flex items-center justify-between gap-2 py-1.5"
+                      style={{ borderTop: `1px solid ${COLORS.border}` }}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: COLORS.text }}>
+                          {item.productName} {item.quantity}개
+                        </p>
+                        <p className="text-xs" style={{ color: COLORS.muted }}>
+                          {fmtPickup(item.pickUpDate)} 픽업 · {item.subtotal.toLocaleString()}원
+                        </p>
+                      </div>
+                      {order.orderState === "PAID" && item.itemStatus === "UNCONFIRMED" ? (
+                        <button
+                          onClick={() => handleConfirm(item.orderItemId)}
+                          disabled={confirmMutation.isPending}
+                          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-60"
+                          style={{ background: COLORS.accentSoft, color: COLORS.accent }}
+                        >
+                          구매확정
+                        </button>
+                      ) : (
+                        <span
+                          className="flex-shrink-0 text-xs font-semibold"
+                          style={{ color: item.itemStatus === "CONFIRMED" ? COLORS.green : COLORS.muted }}
+                        >
+                          {item.itemStatus === "CONFIRMED" ? "확정됨" : item.itemStatus === "CANCELED" ? "취소됨" : ""}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
 

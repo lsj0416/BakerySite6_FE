@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { BackHeader } from "@/components/back-header";
 import { BreadBox } from "@/components/bread-box";
 import { COLORS } from "@/lib/theme";
 import * as cartApi from "@/lib/api/cart";
+import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
+import { ApiException } from "@/lib/api/types";
 import { fmtPickup } from "@/lib/format";
 
 const STATUS_LABEL: Record<cartApi.CartItemStatus, string> = {
@@ -19,6 +22,7 @@ const STATUS_LABEL: Record<cartApi.CartItemStatus, string> = {
 };
 
 export default function CartPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const cartQuery = useQuery({ queryKey: ["cart"], queryFn: cartApi.getCart });
 
@@ -35,6 +39,34 @@ export default function CartPage() {
   });
 
   const items = cartQuery.data?.items ?? [];
+  const orderableItems = items.filter((item) => item.orderable);
+
+  // 장바구니 체크아웃은 담긴 상품 중 지금 주문 가능한 것만 보낸다(품절·픽업일 미선택 등은
+  // 화면에 이미 사유가 표시돼 있으니 조용히 제외한다). 진행 중 주문이 이미 있으면(OR006)
+  // 자동으로 결제·취소하지 않고 그 주문으로 이어서 진행하게 한다.
+  const checkoutMutation = useMutation({
+    mutationFn: async (): Promise<number> => {
+      const cartItemIds = orderableItems.map((item) => item.cartItemId);
+      if (cartItemIds.length === 0) {
+        throw new ApiException("C001", "주문 가능한 상품이 없습니다.");
+      }
+      try {
+        const created = await createPendingOrder({ cartItemIds });
+        return created.orderId;
+      } catch (err) {
+        if (!(err instanceof ApiException) || err.code !== "OR006") throw err;
+        const pending = await getPendingOrder();
+        if (pending) return pending.orderId;
+        throw new ApiException(
+          "OR006",
+          "이미 진행 중인 주문이 있습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
+        );
+      }
+    },
+    onSuccess: (orderId) => {
+      router.push(`/order?orderId=${orderId}`);
+    },
+  });
 
   return (
     <div className="flex flex-col flex-1" style={{ background: COLORS.bg }}>
@@ -174,12 +206,29 @@ export default function CartPage() {
         className="sticky bottom-0 z-20 flex-shrink-0 px-4 py-3"
         style={{ background: COLORS.surface, borderTop: `1px solid ${COLORS.border}` }}
       >
+        {checkoutMutation.isError && (
+          <p className="text-xs text-center mb-2" style={{ color: COLORS.danger }}>
+            {checkoutMutation.error instanceof ApiException
+              ? checkoutMutation.error.message
+              : "주문서 생성에 실패했습니다."}
+          </p>
+        )}
+        {items.length > 0 && orderableItems.length < items.length && (
+          <p className="text-xs text-center mb-2" style={{ color: COLORS.muted }}>
+            주문 가능한 상품만 주문에 포함됩니다.
+          </p>
+        )}
         <button
-          disabled
-          className="w-full py-3.5 rounded-lg text-sm font-semibold cursor-not-allowed"
-          style={{ background: COLORS.disabled, color: COLORS.muted }}
+          onClick={() => checkoutMutation.mutate()}
+          disabled={checkoutMutation.isPending || orderableItems.length === 0}
+          className="w-full py-3.5 rounded-lg text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ background: COLORS.accent, color: COLORS.bg }}
         >
-          결제 기능은 준비 중입니다
+          {checkoutMutation.isPending
+            ? "주문 생성 중..."
+            : orderableItems.length === 0
+              ? "주문 가능한 상품이 없습니다"
+              : `${(cartQuery.data?.totalAmount ?? 0).toLocaleString()}원 주문하기`}
         </button>
       </div>
     </div>

@@ -1,15 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronLeft, Minus, Plus, Sparkles } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
 import { ProductCard } from "@/components/product-card";
+import { useAuth } from "@/lib/auth/auth-context";
 import * as cartApi from "@/lib/api/cart";
 import * as productApi from "@/lib/api/product";
 import { productImageUrl, PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
+import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
 import * as recommendationApi from "@/lib/api/recommendation";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { ApiException } from "@/lib/api/types";
@@ -23,6 +26,7 @@ export function ProductDetailView({
   product: productApi.ProductInfoResponse;
 }) {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const soldOut = product.remainQuantity <= 0;
   const maxQty = Math.max(1, product.remainQuantity);
   const [qty, setQty] = useState(1);
@@ -39,16 +43,45 @@ export function ProductDetailView({
     onSuccess: () => router.push("/cart"),
   });
 
+  // 장바구니를 거치지 않고 바로 주문서(PENDING)를 만든다. 진행 중 주문이 이미 있으면(OR006)
+  // 자동으로 결제·취소하지 않고 그 주문으로 이어서 진행한다(장바구니/드롭 결제와 동일 패턴).
+  const buyNowMutation = useMutation({
+    mutationFn: async (): Promise<number> => {
+      if (!pickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
+      try {
+        const created = await createPendingOrder({ productId, quantity: qty, pickUpDate: pickupDate });
+        return created.orderId;
+      } catch (err) {
+        if (!(err instanceof ApiException) || err.code !== "OR006") throw err;
+        const pending = await getPendingOrder();
+        if (pending) return pending.orderId;
+        throw new ApiException(
+          "OR006",
+          "이미 진행 중인 주문이 있습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
+        );
+      }
+    },
+    onSuccess: (orderId) => {
+      router.push(`/order?orderId=${orderId}`);
+    },
+  });
+
   const errorMessage =
     addToCartMutation.error instanceof ApiException
       ? addToCartMutation.error.message
       : addToCartMutation.isError
         ? "장바구니에 담지 못했습니다."
-        : null;
+        : buyNowMutation.error instanceof ApiException
+          ? buyNowMutation.error.message
+          : buyNowMutation.isError
+            ? "주문서 생성에 실패했습니다."
+            : null;
 
+  // 추천 API는 로그인 필요 — 비회원은 상세는 볼 수 있어도 추천 섹션은 숨긴다.
   const recommendationsQuery = useQuery({
     queryKey: ["recommendations", 4],
     queryFn: () => recommendationApi.getRecommendations(4),
+    enabled: isAuthenticated,
   });
   const recommendations = useMemo(
     () =>
@@ -235,21 +268,56 @@ export function ProductDetailView({
           >
             품절
           </button>
-        ) : (
-          <button
-            onClick={() => addToCartMutation.mutate()}
-            disabled={addToCartMutation.isPending || sortedPickupDates.length === 0 || !pickupDate}
-            className="w-full py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
+        ) : !isAuthenticated ? (
+          <Link
+            href="/login"
+            className="block w-full py-3.5 rounded-lg text-sm font-bold text-center"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >
-            {sortedPickupDates.length === 0
-              ? "픽업 가능 날짜가 없습니다"
-              : !pickupDate
-                ? "픽업 날짜를 선택해주세요"
-                : addToCartMutation.isPending
-                  ? "담는 중..."
-                  : `${qty}개 장바구니 담기`}
-          </button>
+            로그인하고 구매하기
+          </Link>
+        ) : (
+          <>
+            {sortedPickupDates.length === 0 ? (
+              <p className="text-xs mb-2 text-center" style={{ color: COLORS.muted }}>
+                픽업 가능 날짜가 없습니다
+              </p>
+            ) : (
+              !pickupDate && (
+                <p className="text-xs mb-2 text-center" style={{ color: COLORS.muted }}>
+                  픽업 날짜를 선택해주세요
+                </p>
+              )
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => addToCartMutation.mutate()}
+                disabled={
+                  addToCartMutation.isPending ||
+                  buyNowMutation.isPending ||
+                  sortedPickupDates.length === 0 ||
+                  !pickupDate
+                }
+                className="flex-1 py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
+                style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
+              >
+                {addToCartMutation.isPending ? "담는 중..." : "장바구니"}
+              </button>
+              <button
+                onClick={() => buyNowMutation.mutate()}
+                disabled={
+                  addToCartMutation.isPending ||
+                  buyNowMutation.isPending ||
+                  sortedPickupDates.length === 0 ||
+                  !pickupDate
+                }
+                className="flex-1 py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
+                style={{ background: COLORS.accent, color: COLORS.bg }}
+              >
+                {buyNowMutation.isPending ? "주문 생성 중..." : "바로구매"}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

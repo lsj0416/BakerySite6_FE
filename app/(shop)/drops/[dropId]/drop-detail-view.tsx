@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronLeft, Heart, MapPin, Minus, Plus } from "lucide-react";
@@ -10,8 +11,8 @@ import { DropBadge } from "@/components/drop-badge";
 import { ProductCard } from "@/components/product-card";
 import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
-import * as cartApi from "@/lib/api/cart";
 import * as recommendationApi from "@/lib/api/recommendation";
+import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
 import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
@@ -25,7 +26,7 @@ import {
 
 export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi.DropInfo }) {
   const router = useRouter();
-  const { memberId } = useAuth();
+  const { memberId, isAuthenticated } = useAuth();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -38,10 +39,6 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
     () => EMPTY_WISHLIST,
   );
   const isHearted = wishlist.includes(dropId);
-
-  // 대기열 순번 폴링을 시작했는지 여부만 로컬 상태로 두고, 나머지는 뮤테이션/쿼리 상태에서 그대로 파생한다
-  // (effect 안에서 로컬 state를 직접 갱신하지 않기 위함).
-  const [polling, setPolling] = useState(false);
 
   const status = toDropStatus(drop.dropStatus, drop.remainQuantity);
   const pct = drop.totalQuantity > 0 ? (drop.remainQuantity / drop.totalQuantity) * 100 : 0;
@@ -60,81 +57,111 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
   // 첫 날짜를 기본 선택값으로 자동 지정하지 않는다 — 유저가 직접 골라야 구매하기가 눌린다.
   const effectivePickupDate = pickupDate;
 
-  // 대기열 입장이 확정되자마자(=이 유저 차례가 되자마자) 상세 페이지에서 고른 수량만큼
-  // 재고를 바로 선점한다 — "구매하기"를 누른 시점이 아니라 실제 순번이 돌아온 시점에
-  // 재고를 잡아야, 뒤에 결제 화면까지 가는 동안 다른 사람이 먼저 채가는 걸 막을 수 있다.
+  // 입장이 확정되자마자 상세 페이지에서 고른 수량만큼 재고를 바로 선점하고, 그 자리에서
+  // PENDING 주문서까지 만든다 — lock-start만 해두고 주문을 안 만든 상태는 만료 배치가
+  // 회수하지 못하는 유일한 구멍이라(OrderExpirationScheduler 주석 참고), 그 구멍을
+  // 최소화하려면 이동 전에 주문 생성까지 같은 호출 체인 안에서 끝내야 한다. 이후 화면은
+  // orderId만으로 서버 상태를 다시 조회하므로, URL에는 qty/금액을 아예 싣지 않는다.
   const reserveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<number> => {
       if (!effectivePickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
       await dropApi.lockStart(dropId, qty);
-      await cartApi.createCart({ dropId, quantity: qty });
-      await cartApi.selectPickupDate(effectivePickupDate);
+
+      try {
+        const created = await createPendingOrder({ dropId, pickUpDate: effectivePickupDate });
+        return created.orderId;
+      } catch (err) {
+        // OR006(DUPLICATE_REQUEST) = 이미 진행 중인 주문이 있어 새로 못 만듦. 자동으로
+        // 결제·취소하지 않고, GET /orders/pending으로 실제로 같은 드롭 주문인지만 확인한다.
+        if (!(err instanceof ApiException) || err.code !== "OR006") throw err;
+
+        const pending = await getPendingOrder();
+        const sameDropItem =
+          pending?.salesType === "DROP" ? pending.items.find((item) => item.dropId === dropId) : undefined;
+
+        if (pending && sameDropItem) return pending.orderId;
+
+        throw new ApiException(
+          "OR006",
+          "다른 진행 중인 주문이 있어 이 드롭을 새로 주문할 수 없습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
+        );
+      }
     },
-    onSuccess: () => {
-      const params = new URLSearchParams({ dropId: String(dropId), qty: String(qty) });
-      if (effectivePickupDate) params.set("pickupDate", effectivePickupDate);
-      router.push(`/order?${params.toString()}`);
+    onSuccess: (orderId) => {
+      router.push(`/order?orderId=${orderId}`);
     },
   });
 
+  // 대기열이 삭제되면서 "구매하기" 클릭이 곧바로 confirm-entry 호출이 됨(더 이상 enterQueue/
+  // getQueueRank 2단계를 거치지 않음). 성공하면 바로 재고 선점(reserveMutation)으로 이어간다.
   const confirmMutation = useMutation({
     mutationFn: () => dropApi.confirmEntry(dropId),
     onSuccess: () => reserveMutation.mutate(),
   });
 
-  const enterMutation = useMutation({
-    mutationFn: () => dropApi.enterQueue(dropId),
-    onSuccess: (res) => {
-      if (res.status === "ACTIVE") {
-        confirmMutation.mutate();
-      } else {
-        setPolling(true);
-      }
-    },
+  const confirmErrorCode =
+    confirmMutation.error instanceof ApiException ? confirmMutation.error.code : null;
+
+  // DR006(ALREADY_ENTERED)은 단순 재입장이 아니라 이미 재고를 선점(RESERVED)했거나 구매를
+  // 완료(COMPLETED)한 경우에만 뜬다(DropEnterService.confirmEntry 참고 — ENTERED 상태의 재입장은
+  // 서버가 그냥 성공 처리함). 재고 선점까지 갔었다면 진행 중 주문이 남아있을 수 있어
+  // GET /orders/pending으로 실제로 이어갈 게 있는지 확인한다(성공을 가장하지 않기 위함).
+  const pendingOrderAfterAlreadyEnteredQuery = useQuery({
+    queryKey: ["pending-order", "drop-detail-dr006"],
+    queryFn: () => getPendingOrder(),
+    enabled: confirmErrorCode === "DR006",
   });
 
-  const rankPollingEnabled =
-    polling && !confirmMutation.isPending && !confirmMutation.isSuccess && !confirmMutation.isError;
+  // DR008(DROP_NOT_ACTIVE)은 판매 전 / 판매 마감 / 품절(드롭이 COMPLETED로 바뀐 경우)을
+  // 서버가 전부 같은 코드로 묶어서 던진다(DropEnterService.confirmEntry의 isAccessible 체크 —
+  // 코드 자체는 원인을 구분해 주지 않음). 이 버튼은 status==="ON_SALE"일 때만 눌리므로,
+  // 화면에 이미 있는 판매 시작/마감 시각과 비교해 어느 쪽인지 최선으로 구분해 안내한다.
+  const dr008Message =
+    now.getTime() < new Date(drop.dropStart).getTime()
+      ? "아직 판매가 시작되지 않았습니다."
+      : now.getTime() >= new Date(drop.dropEnd).getTime()
+        ? "판매가 마감되었습니다."
+        : "재고가 모두 소진되었습니다.";
 
-  const rankQuery = useQuery({
-    queryKey: ["queue-rank", dropId],
-    queryFn: () => dropApi.getQueueRank(dropId),
-    enabled: rankPollingEnabled,
-    refetchInterval: 1000,
-  });
+  // 이 드롭의 진행 중 주문인지는 salesType과 items[].dropId를 모두 봐야 안다 — 존재 여부만으로는
+  // 전혀 무관한 다른 진행 주문(다른 드롭·일반상품)까지 "이 드롭 주문"으로 잘못 안내할 수 있다.
+  const pendingOrderIsForThisDrop =
+    pendingOrderAfterAlreadyEnteredQuery.data?.salesType === "DROP" &&
+    pendingOrderAfterAlreadyEnteredQuery.data.items.some((item) => item.dropId === dropId);
 
+  const confirmErrorMessage =
+    confirmErrorCode === "DR006"
+      ? pendingOrderAfterAlreadyEnteredQuery.isLoading
+        ? "이미 참여한 드롭입니다. 진행 상태를 확인하는 중..."
+        : pendingOrderIsForThisDrop
+          ? "이미 이 드롭의 진행 중인 주문이 있습니다. 주문 내역에서 이어서 진행해주세요."
+          : "이미 참여했거나 구매가 완료된 드롭입니다."
+      : confirmErrorCode === "DR008"
+        ? dr008Message
+        : confirmMutation.error instanceof ApiException
+          ? confirmMutation.error.message
+          : "입장에 실패했습니다.";
+
+  // 추천 API는 로그인 필요 — 비회원은 상세는 볼 수 있어도 추천 섹션은 숨긴다.
   const recommendationsQuery = useQuery({
     queryKey: ["recommendations", 3],
     queryFn: () => recommendationApi.getRecommendations(3),
+    enabled: isAuthenticated,
   });
   const recommendations = useMemo(
     () => (recommendationsQuery.data?.items ?? []).map(recommendationItemToCatalogProduct),
     [recommendationsQuery.data],
   );
 
-  useEffect(() => {
-    if (!rankPollingEnabled || rankQuery.data?.status !== "ACTIVE") return;
-    confirmMutation.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rankQuery.data, rankPollingEnabled]);
+  const purchasing = confirmMutation.isPending || reserveMutation.isPending;
 
-  const purchasing =
-    enterMutation.isPending || rankPollingEnabled || confirmMutation.isPending || reserveMutation.isPending;
-  const rank = rankQuery.data?.status === "WAITING" ? rankQuery.data.rank : null;
-
-  const purchaseErrorMessage = enterMutation.isError
-    ? enterMutation.error instanceof ApiException
-      ? enterMutation.error.message
-      : "대기열 진입에 실패했습니다."
-    : confirmMutation.isError
-      ? confirmMutation.error instanceof ApiException
-        ? confirmMutation.error.message
-        : "입장에 실패했습니다."
-      : reserveMutation.isError
-        ? reserveMutation.error instanceof ApiException
-          ? reserveMutation.error.message
-          : "재고 선점에 실패했습니다."
-        : null;
+  const purchaseErrorMessage = confirmMutation.isError
+    ? confirmErrorMessage
+    : reserveMutation.isError
+      ? reserveMutation.error instanceof ApiException
+        ? reserveMutation.error.message
+        : "재고 선점에 실패했습니다."
+      : null;
 
   return (
     <div
@@ -425,16 +452,21 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         {purchasing && (
           <div className="text-center py-2 mb-2">
             <p className="text-sm font-semibold" style={{ color: COLORS.accent }}>
-              {rank && rank > 0
-                ? `대기 순번 ${rank}번`
-                : reserveMutation.isPending
-                  ? "재고 선점 중..."
-                  : "입장 처리 중..."}
+              {reserveMutation.isPending ? "재고 선점 중..." : "입장 처리 중..."}
             </p>
           </div>
         )}
 
-        {status === "SCHEDULED" && (
+        {!isAuthenticated && (status === "SCHEDULED" || status === "ON_SALE") && (
+          <Link
+            href="/login"
+            className="block w-full py-3.5 rounded-lg text-sm font-bold text-center"
+            style={{ background: COLORS.accent, color: COLORS.bg }}
+          >
+            {status === "SCHEDULED" ? "로그인하고 찜하기" : "로그인하고 구매하기"}
+          </Link>
+        )}
+        {isAuthenticated && status === "SCHEDULED" && (
           <button
             onClick={() => memberId !== null && toggleWishlist(memberId, dropId)}
             disabled={memberId === null}
@@ -448,9 +480,9 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
             {isHearted ? "♥ 찜 완료" : "찜하고 알림받기"}
           </button>
         )}
-        {status === "ON_SALE" && (
+        {isAuthenticated && status === "ON_SALE" && (
           <button
-            onClick={() => enterMutation.mutate()}
+            onClick={() => confirmMutation.mutate()}
             disabled={purchasing || !effectivePickupDate}
             className="w-full py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
             style={{ background: COLORS.accent, color: COLORS.bg }}

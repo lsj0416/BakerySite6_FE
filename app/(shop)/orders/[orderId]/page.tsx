@@ -20,7 +20,7 @@ export default function OrderDetailPage() {
 
   const orderQuery = useQuery({
     queryKey: ["order", orderId],
-    queryFn: () => orderApi.getOrder(orderId),
+    queryFn: () => orderApi.getOrderDetail(orderId),
     enabled: orderIdValid,
   });
 
@@ -65,99 +65,101 @@ export default function OrderDetailPage() {
 
       {order &&
         (() => {
-          const status = ORDER_STATUS_LABEL[order.orderState];
-          const canCancel = order.orderState === "PAID";
-          const dDay = getDDay(order.pickupDate);
-          const totalAmount = order.orderItem.price * order.orderItem.quantity;
+          const canCancel =
+            order.orderState === "PAID" && order.items.every((item) => item.itemStatus !== "CONFIRMED");
           return (
             <>
               <div className="flex-1 overflow-y-auto">
-                {status !== "취소" && (
-                  <div
-                    className="mx-4 mt-4 p-4 rounded-xl"
-                    style={{ background: COLORS.accentSoft, border: `1px solid ${COLORS.border}` }}
+                <div className="mx-4 mt-4 flex items-center justify-between">
+                  <span
+                    className="text-sm font-semibold px-2 py-1 rounded"
+                    style={{ background: COLORS.accentSoft, color: COLORS.accent }}
                   >
-                    <div className="flex items-center gap-2 mb-2">
-                      <MapPin size={15} color={COLORS.accent} />
-                      <span className="font-semibold" style={{ color: COLORS.text }}>
-                        {fmtPickup(order.pickupDate)} 픽업
-                      </span>
-                    </div>
-                    <div className="text-center py-3">
-                      <span
-                        className="text-6xl font-bold font-serif"
-                        style={{
-                          color: dDay < 0 ? COLORS.muted : dDay === 0 ? COLORS.green : COLORS.accent,
-                        }}
-                      >
-                        {dDay < 0 ? "픽업완료" : dDay === 0 ? "오늘!" : `D-${dDay}`}
-                      </span>
-                    </div>
-                    <p className="text-sm text-center font-semibold mb-4" style={{ color: COLORS.text }}>
-                      {order.seller.sellerName ?? "판매자 정보 없음"}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() =>
-                          window.open(
-                            `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.seller.address!)}`,
-                            "_blank",
-                          )
-                        }
-                        disabled={!order.seller.address}
-                        className="flex-1 py-2.5 rounded-lg text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
-                        style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
-                      >
-                        <MapPin size={13} /> 지도 보기
-                      </button>
-                      <button
-                        onClick={() => {
-                          window.location.href = `tel:${order.seller.phoneNumber}`;
-                        }}
-                        disabled={!order.seller.phoneNumber}
-                        className="flex-1 py-2.5 rounded-lg text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
-                        style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
-                      >
-                        <Phone size={13} /> 전화하기
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div
-                  className="mx-4 mt-3 p-4 rounded-xl"
-                  style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
-                >
-                  <p className="text-sm font-semibold mb-3" style={{ color: COLORS.text }}>
-                    주문 상품
-                  </p>
-                  <div className="flex gap-3">
-                    <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" label={order.orderItem.dropName} />
-                    <div>
-                      <p className="text-xs" style={{ color: COLORS.muted }}>
-                        {order.seller.sellerName ?? "-"}
-                      </p>
-                      <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                        {order.orderItem.dropName} {order.orderItem.quantity}개
-                      </p>
-                      <p className="text-sm" style={{ color: COLORS.text }}>
-                        {totalAmount.toLocaleString()}원
-                      </p>
-                    </div>
-                  </div>
+                    {ORDER_STATUS_LABEL[order.orderState]}
+                  </span>
+                  <span className="text-xs" style={{ color: COLORS.muted }}>
+                    {order.totalAmount.toLocaleString()}원 · {order.items.length}개 상품
+                  </span>
                 </div>
 
+                {order.items.map((item) => {
+                  const dDay = getDDay(item.pickUpDate);
+                  return (
+                    <div
+                      key={item.orderItemId}
+                      className="mx-4 mt-3 p-4 rounded-xl"
+                      style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
+                    >
+                      <div className="flex gap-3">
+                        <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" label={item.productName} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs" style={{ color: COLORS.muted }}>
+                            {item.seller.sellerName ?? "판매자 정보 없음"}
+                          </p>
+                          <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
+                            {item.productName} {item.quantity}개
+                          </p>
+                          <p className="text-sm" style={{ color: COLORS.text }}>
+                            {item.subtotal.toLocaleString()}원
+                          </p>
+                          <p className="mt-1 text-xs" style={{ color: COLORS.muted }}>
+                            {fmtPickup(item.pickUpDate)} 픽업
+                            {order.orderState === "PAID" &&
+                              (dDay < 0 ? " · 픽업완료" : dDay === 0 ? " · 오늘 픽업!" : ` · D-${dDay}`)}
+                          </p>
+                          <p
+                            className="mt-1 text-xs font-semibold"
+                            style={{ color: item.itemStatus === "CONFIRMED" ? COLORS.green : COLORS.muted }}
+                          >
+                            {item.itemStatus === "CONFIRMED"
+                              ? `구매확정됨${item.confirmedAt ? ` · ${fmtDateTime(item.confirmedAt)}` : ""}`
+                              : item.itemStatus === "CANCELED"
+                                ? "취소된 항목"
+                                : "구매확정 전"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() =>
+                            window.open(
+                              `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.seller.address!)}`,
+                              "_blank",
+                            )
+                          }
+                          disabled={!item.seller.address}
+                          className="flex-1 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
+                          style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
+                        >
+                          <MapPin size={12} /> 지도 보기
+                        </button>
+                        <button
+                          onClick={() => {
+                            window.location.href = `tel:${item.seller.phoneNumber}`;
+                          }}
+                          disabled={!item.seller.phoneNumber}
+                          className="flex-1 py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
+                          style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
+                        >
+                          <Phone size={12} /> 전화하기
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
                 <div
-                  className="mx-4 mt-3 p-4 rounded-xl"
+                  className="mx-4 mt-3 mb-4 p-4 rounded-xl"
                   style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
                 >
                   <p className="text-sm font-semibold mb-3" style={{ color: COLORS.text }}>
                     결제 정보
                   </p>
                   {[
-                    ["결제 금액", `${totalAmount.toLocaleString()}원`],
+                    ["결제 금액", `${order.totalAmount.toLocaleString()}원`],
                     ["결제 수단", "예치금"],
-                    ["결제 일시", fmtDateTime(order.paidAt)],
+                    ...(order.paidAt ? [["결제 일시", fmtDateTime(order.paidAt)]] : []),
+                    ...(order.canceledAt ? [["취소 일시", fmtDateTime(order.canceledAt)]] : []),
                   ].map(([l, v]) => (
                     <div key={l} className="flex justify-between py-1.5">
                       <span className="text-sm" style={{ color: COLORS.muted }}>
@@ -168,31 +170,11 @@ export default function OrderDetailPage() {
                       </span>
                     </div>
                   ))}
-                  {order.confirmedAt && (
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-sm" style={{ color: COLORS.muted }}>
-                        구매 확정
-                      </span>
-                      <span className="text-sm" style={{ color: COLORS.text }}>
-                        {fmtDateTime(order.confirmedAt)}
-                      </span>
-                    </div>
-                  )}
-                  {order.canceledAt && (
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-sm" style={{ color: COLORS.muted }}>
-                        취소 일시
-                      </span>
-                      <span className="text-sm" style={{ color: COLORS.text }}>
-                        {fmtDateTime(order.canceledAt)}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
-                {status === "취소" && (
+                {order.orderState === "CANCELED" && (
                   <div
-                    className="mx-4 mt-3 mb-4 p-4 rounded-xl text-center"
+                    className="mx-4 mb-4 p-4 rounded-xl text-center"
                     style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
                   >
                     <p className="text-sm" style={{ color: COLORS.muted }}>
@@ -200,7 +182,6 @@ export default function OrderDetailPage() {
                     </p>
                   </div>
                 )}
-                {status !== "취소" && <div className="h-4" />}
 
                 {cancelMutation.isError && (
                   <p className="text-xs text-center mb-3 px-4" style={{ color: "#E0554F" }}>

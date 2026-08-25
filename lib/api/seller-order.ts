@@ -1,22 +1,32 @@
 import { apiRequest } from "@/lib/api/client";
-import type { OrderState } from "@/lib/api/order";
+import type { OrderHistoryState, OrderItemStatus } from "@/lib/api/order";
 
-export interface SellerOrderListItem {
-  orderId: number;
-  dropId: number;
-  dropName: string;
-  buyerName: string;
+export interface SellerOrderItem {
+  orderItemId: number;
+  productId: number;
+  /** 드롭 주문에서만 채워짐. */
+  dropId: number | null;
+  productName: string;
   quantity: number;
-  totalAmount: number;
-  orderState: OrderState;
-  pickupDate: string;
-  paidAt: string;
+  subtotal: number;
+  pickUpDate: string;
+  itemStatus: OrderItemStatus;
   confirmedAt: string | null;
-  canceledAt: string | null;
 }
 
-export interface SellerOrderListResponse {
-  content: SellerOrderListItem[];
+/** 판매자 판매내역 한 줄. 자기 항목만 담기고 금액도 자기 몫 소계(sellerAmount)다. */
+export interface SellerOrderSummaryResponse {
+  orderId: number;
+  buyerName: string;
+  orderState: OrderHistoryState;
+  sellerAmount: number;
+  paidAt: string | null;
+  canceledAt: string | null;
+  items: SellerOrderItem[];
+}
+
+export interface SellerOrderPageResponse {
+  content: SellerOrderSummaryResponse[];
   page: number;
   size: number;
   totalElements: number;
@@ -24,7 +34,7 @@ export interface SellerOrderListResponse {
 }
 
 export interface GetSellerOrdersParams {
-  orderState?: OrderState;
+  orderState?: OrderHistoryState;
   page?: number;
   size?: number;
 }
@@ -36,5 +46,5 @@ export function getSellerOrders(params: GetSellerOrdersParams = {}) {
   if (params.page !== undefined) query.set("page", String(params.page));
   if (params.size !== undefined) query.set("size", String(params.size));
   const qs = query.toString();
-  return apiRequest<SellerOrderListResponse>(`/api/v1/sellers/me/orders${qs ? `?${qs}` : ""}`);
+  return apiRequest<SellerOrderPageResponse>(`/api/v1/sellers/me/orders${qs ? `?${qs}` : ""}`);
 }

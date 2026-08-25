@@ -62,8 +62,19 @@ export function getQueueRank(dropId: number) {
   return apiRequest<QueueRankResponse>(`/api/v1/drops/${dropId}/queue/rank`);
 }
 
+/** confirm-entry 응답(ConfirmEntryResponse, 2026-08-24 HEAD 기준). pickupDates는 백엔드 Set<LocalDate> 직렬화값. */
+export interface ConfirmEntryResponse {
+  name: string;
+  description: string;
+  imageUrl: string;
+  price: number;
+  limitQuantity: number;
+  remainQuantity: number;
+  pickupDates: string[];
+}
+
 export function confirmEntry(dropId: number) {
-  return apiRequest<unknown>(`/api/v1/drops/${dropId}/confirm-entry`, {
+  return apiRequest<ConfirmEntryResponse>(`/api/v1/drops/${dropId}/confirm-entry`, {
     method: "POST",
     body: {},
   });

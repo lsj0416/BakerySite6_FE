@@ -92,10 +92,13 @@ export default function SellerDashboardPage() {
     enabled: isApproved,
   });
 
-  const activeOrders = pickupOrdersQuery.data?.content.filter((o) => o.orderState !== "CANCELED") ?? [];
+  const activeItems =
+    pickupOrdersQuery.data?.content
+      .filter((o) => o.orderState !== "CANCELED")
+      .flatMap((o) => o.items.filter((i) => i.itemStatus !== "CANCELED")) ?? [];
   const todayStr = toDateStr(new Date());
-  const todayOrders = activeOrders.filter((o) => o.pickupDate === todayStr);
-  const todayQty = todayOrders.reduce((s, o) => s + o.quantity, 0);
+  const todayItems = activeItems.filter((i) => i.pickUpDate === todayStr);
+  const todayQty = todayItems.reduce((s, i) => s + i.quantity, 0);
 
   const next7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -104,7 +107,7 @@ export default function SellerDashboardPage() {
   });
   const pickupChartData = next7Days.map((d) => {
     const dateStr = toDateStr(d);
-    const cnt = activeOrders.filter((o) => o.pickupDate === dateStr).reduce((s, o) => s + o.quantity, 0);
+    const cnt = activeItems.filter((i) => i.pickUpDate === dateStr).reduce((s, i) => s + i.quantity, 0);
     return { label: `${d.getMonth() + 1}/${d.getDate()}`, cnt, isToday: dateStr === todayStr };
   });
   const maxPickupCnt = Math.max(...pickupChartData.map((d) => d.cnt), 1);
@@ -230,17 +233,17 @@ export default function SellerDashboardPage() {
                 오늘 픽업 예정 주문이 없습니다
               </p>
             )}
-            {todayOrders.map((o) => (
+            {todayItems.map((i) => (
               <div
-                key={o.orderId}
+                key={i.orderItemId}
                 className="flex justify-between items-center px-4 py-3"
                 style={{ borderTop: `1px solid ${COLORS.border}` }}
               >
                 <span className="text-sm" style={{ color: COLORS.text }}>
-                  {o.dropName}
+                  {i.productName}
                 </span>
                 <span className="text-sm font-semibold" style={{ color: COLORS.accent }}>
-                  {o.quantity}개
+                  {i.quantity}개
                 </span>
               </div>
             ))}

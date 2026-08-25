@@ -11,11 +11,10 @@ import * as orderApi from "@/lib/api/order";
 import { ORDER_STATUS_LABEL } from "@/lib/types";
 import { fmtDateTime, fmtPickup, getDDay } from "@/lib/format";
 
-type FilterKey = "전체" | orderApi.OrderState;
+type FilterKey = "전체" | orderApi.OrderHistoryState;
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "전체", label: "전체" },
   { key: "PAID", label: "픽업대기" },
-  { key: "CONFIRMED", label: "구매확정" },
   { key: "CANCELED", label: "취소" },
 ];
 
@@ -84,7 +83,11 @@ export default function OrderListPage() {
         )}
 
         {ordersQuery.data?.content.map((order) => {
-          const dDay = getDDay(order.pickupDate);
+          const dDay = getDDay(order.nearestPickUpDate);
+          const productLabel =
+            order.otherItemCount > 0
+              ? `${order.representativeProductName} 외 ${order.otherItemCount}건`
+              : order.representativeProductName;
           return (
             <Link
               key={order.orderId}
@@ -99,13 +102,13 @@ export default function OrderListPage() {
                 </span>
               </div>
               <div className="flex gap-3 items-center mb-3">
-                <BreadBox className="w-12 h-12 rounded-lg flex-shrink-0" label={order.dropName} />
+                <BreadBox className="w-12 h-12 rounded-lg flex-shrink-0" label={order.representativeProductName} />
                 <div>
                   <p className="text-xs" style={{ color: COLORS.muted }}>
-                    {order.sellerName}
+                    {order.representativeSellerName}
                   </p>
                   <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                    {order.dropName} {order.quantity}개
+                    {productLabel} · {order.totalQuantity}개
                   </p>
                   <p className="text-sm" style={{ color: COLORS.text }}>
                     {order.totalAmount.toLocaleString()}원
@@ -119,7 +122,7 @@ export default function OrderListPage() {
                 <div className="flex items-center gap-1.5">
                   <MapPin size={13} color={COLORS.muted} />
                   <span className="text-xs" style={{ color: COLORS.muted }}>
-                    {fmtPickup(order.pickupDate)} 픽업
+                    {fmtPickup(order.nearestPickUpDate)} 픽업
                   </span>
                 </div>
                 {order.orderState !== "CANCELED" && (
