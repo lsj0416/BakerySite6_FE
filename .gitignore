@@ -31,3 +31,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+
+# ad-hoc e2e scripts (Playwright, not committed)
+e2e-scratch/

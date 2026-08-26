@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, MapPin } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
-import * as orderApi from "@/lib/api/order";
+import { getOrderDetail } from "@/lib/api/order";
 import { fmtPickup } from "@/lib/format";
 
 export function CompleteView() {
@@ -15,8 +15,8 @@ export function CompleteView() {
   const orderIdValid = Number.isFinite(orderId) && orderId > 0;
 
   const orderQuery = useQuery({
-    queryKey: ["order", orderId],
-    queryFn: () => orderApi.getOrder(orderId),
+    queryKey: ["order-detail", orderId],
+    queryFn: () => getOrderDetail(orderId),
     enabled: orderIdValid,
   });
   const order = orderQuery.data;
@@ -38,32 +38,45 @@ export function CompleteView() {
         </p>
       </div>
 
-      {order && (
-        <div
-          className="w-full p-4 rounded-xl"
-          style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
-        >
-          <div className="flex gap-3 mb-3">
-            <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" label={order.orderItem.dropName} />
-            <div>
-              <p className="text-xs" style={{ color: COLORS.muted }}>
-                {order.seller.sellerName ?? "판매자 정보 없음"}
-              </p>
-              <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                {order.orderItem.dropName} {order.orderItem.quantity}개
-              </p>
-              <p className="text-sm" style={{ color: COLORS.text }}>
-                {(order.orderItem.price * order.orderItem.quantity).toLocaleString()}원
-              </p>
+      {order && order.items.length > 0 && (
+        <div className="w-full flex flex-col gap-3">
+          {order.items.map((item) => (
+            <div
+              key={item.orderItemId}
+              className="w-full p-4 rounded-xl"
+              style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
+            >
+              <div className="flex gap-3 mb-3">
+                <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" src={item.imageUrl} label={item.productName} />
+                <div>
+                  <p className="text-xs" style={{ color: COLORS.muted }}>
+                    {item.seller.sellerName ?? "판매자 정보 없음"}
+                  </p>
+                  <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
+                    {item.productName} {item.quantity}개
+                  </p>
+                  <p className="text-sm" style={{ color: COLORS.text }}>
+                    {item.subtotal.toLocaleString()}원
+                  </p>
+                </div>
+              </div>
+              <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                <div className="flex items-center gap-2">
+                  <MapPin size={13} color={COLORS.accent} />
+                  <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
+                    {fmtPickup(item.pickUpDate)} 픽업
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="pt-3" style={{ borderTop: `1px solid ${COLORS.border}` }}>
-            <div className="flex items-center gap-2">
-              <MapPin size={13} color={COLORS.accent} />
-              <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
-                {fmtPickup(order.pickupDate)} 픽업
-              </span>
-            </div>
+          ))}
+          <div className="w-full flex justify-between px-1">
+            <span className="text-sm" style={{ color: COLORS.muted }}>
+              총 결제 금액
+            </span>
+            <span className="text-sm font-bold" style={{ color: COLORS.text }}>
+              {order.totalAmount.toLocaleString()}원
+            </span>
           </div>
         </div>
       )}

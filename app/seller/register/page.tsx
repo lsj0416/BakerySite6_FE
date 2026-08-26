@@ -8,7 +8,7 @@ import { COLORS } from "@/lib/theme";
 import * as sellerApi from "@/lib/api/seller";
 import { useAuth } from "@/lib/auth/auth-context";
 import { ApiException } from "@/lib/api/types";
-import { BANK_CODE_LABEL, BANK_CODES } from "@/lib/bank";
+import { BANK_CODE_LABEL, BANK_CODES, getBankName } from "@/lib/bank";
 
 const inputClass = "w-full px-4 py-3 rounded-lg text-sm outline-none";
 const inputStyle = {
@@ -19,11 +19,31 @@ const inputStyle = {
 
 type Step = 1 | 2 | 3;
 
+const DRAFT_KEY = "seller-apply-draft";
+
+interface SellerApplyDraft {
+  step: Step;
+  business: { businessNumber: string; businessAddress: string; businessRepresentativeName: string };
+  account: { bankCode: string; accountNumber: string; accountHolder: string };
+  verificationRequestId: string | null;
+  bakeryName: string;
+}
+
+/** 새로고침해도 여기까지 온 입력(1원 송금 인증 포함)이 날아가지 않게 sessionStorage에서 복원한다. */
+function readDraft(): SellerApplyDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as SellerApplyDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function SellerRegisterPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { memberId } = useAuth();
-  const [step, setStep] = useState<Step>(1);
 
   // Seller-Member는 0..1 관계 — 이미 신청한 회원이 다시 신청 폼을 채워도
   // 서버가 SE005(이미 신청 완료)로 거부하므로, 신청 이력이 있으면 아예
@@ -36,22 +56,36 @@ export default function SellerRegisterPage() {
   });
   useEffect(() => {
     if (mySellerQuery.data) {
+      sessionStorage.removeItem(DRAFT_KEY);
       router.replace("/seller/dashboard");
     }
   }, [mySellerQuery.data, router]);
 
-  const [business, setBusiness] = useState({
-    businessNumber: "",
-    businessAddress: "",
-    businessRepresentativeName: "",
-  });
+  const [step, setStep] = useState<Step>(() => readDraft()?.step ?? 1);
+  const [business, setBusiness] = useState(
+    () =>
+      readDraft()?.business ?? {
+        businessNumber: "",
+        businessAddress: "",
+        businessRepresentativeName: "",
+      },
+  );
 
-  const [account, setAccount] = useState({ bankCode: "", accountNumber: "", accountHolder: "" });
-  const [verificationRequestId, setVerificationRequestId] = useState<string | null>(null);
+  const [account, setAccount] = useState(
+    () => readDraft()?.account ?? { bankCode: "", accountNumber: "", accountHolder: "" },
+  );
+  const [verificationRequestId, setVerificationRequestId] = useState<string | null>(
+    () => readDraft()?.verificationRequestId ?? null,
+  );
   const [mockCode, setMockCode] = useState<string | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
 
-  const [bakeryName, setBakeryName] = useState("");
+  const [bakeryName, setBakeryName] = useState(() => readDraft()?.bakeryName ?? "");
+
+  useEffect(() => {
+    const draft: SellerApplyDraft = { step, business, account, verificationRequestId, bakeryName };
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [step, business, account, verificationRequestId, bakeryName]);
 
   const verifyBusinessMutation = useMutation({
     mutationFn: () => sellerApi.verifyBusiness(business),
@@ -89,6 +123,7 @@ export default function SellerRegisterPage() {
         businessRepresentativeName: business.businessRepresentativeName,
       }),
     onSuccess: () => {
+      sessionStorage.removeItem(DRAFT_KEY);
       queryClient.invalidateQueries({ queryKey: ["mySeller"] });
       router.push("/seller/dashboard");
     },
@@ -189,6 +224,14 @@ export default function SellerRegisterPage() {
 
         {step === 2 && (
           <div className="flex flex-col gap-4">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="text-sm font-semibold text-left"
+              style={{ color: COLORS.accent }}
+            >
+              ← 이전
+            </button>
             <form onSubmit={handleAccountSubmit} className="flex flex-col gap-3">
               <select
                 required
@@ -288,6 +331,14 @@ export default function SellerRegisterPage() {
 
         {step === 3 && (
           <form onSubmit={handleApplySubmit} className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="text-sm font-semibold text-left"
+              style={{ color: COLORS.accent }}
+            >
+              ← 이전
+            </button>
             <div
               className="rounded-xl p-4 flex flex-col gap-1.5"
               style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
@@ -303,6 +354,12 @@ export default function SellerRegisterPage() {
               </p>
               <p className="text-sm" style={{ color: COLORS.text }}>
                 {business.businessAddress}
+              </p>
+              <p className="text-xs mt-2" style={{ color: COLORS.muted }}>
+                정산 계좌
+              </p>
+              <p className="text-sm" style={{ color: COLORS.text }}>
+                {getBankName(account.bankCode)} {account.accountNumber} ({account.accountHolder})
               </p>
             </div>
             <input

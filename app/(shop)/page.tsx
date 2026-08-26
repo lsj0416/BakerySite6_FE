@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Clock3, Sparkles, Wallet } from "lucide-react";
 import { BreadBox } from "@/components/bread-box";
 import { ProductCard } from "@/components/product-card";
+import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
 import * as paymentApi from "@/lib/api/payment";
 import * as productApi from "@/lib/api/product";
@@ -16,13 +17,18 @@ import { COLORS } from "@/lib/theme";
 import { toDropStatus } from "@/lib/types";
 
 export default function HomePage() {
+  const { isAuthenticated } = useAuth();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const accountQuery = useQuery({ queryKey: ["deposit-account"], queryFn: paymentApi.getDepositAccount });
+  const accountQuery = useQuery({
+    queryKey: ["deposit-account"],
+    queryFn: paymentApi.getDepositAccount,
+    enabled: isAuthenticated,
+  });
   const dropsQuery = useQuery({ queryKey: ["upcoming-drops"], queryFn: () => dropApi.getUpcomingDrops(30) });
   const drops = useMemo(() => dropsQuery.data ?? [], [dropsQuery.data]);
   const products = useMemo(() => drops.map(dropToCatalogProduct), [drops]);
@@ -34,9 +40,11 @@ export default function HomePage() {
     () => (generalProductsQuery.data?.content ?? []).map(productToCatalogProduct),
     [generalProductsQuery.data],
   );
+  // 추천 API는 로그인 필요 — 비회원은 홈은 볼 수 있어도 추천 섹션은 숨긴다.
   const recommendationsQuery = useQuery({
     queryKey: ["recommendations", 4],
     queryFn: () => recommendationApi.getRecommendations(4),
+    enabled: isAuthenticated,
   });
   const recommendedProducts = useMemo(
     () => (recommendationsQuery.data?.items ?? []).map(recommendationItemToCatalogProduct),

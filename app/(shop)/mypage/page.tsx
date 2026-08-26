@@ -255,7 +255,7 @@ export default function MyPage() {
             {noApplication
               ? "판매자 입점 신청"
               : sellerQuery.data?.applicationStatus === "APPROVED"
-                ? "내 드롭 관리"
+                ? "내 상품 관리"
                 : "판매자 입점 현황"}
           </Link>
         )}

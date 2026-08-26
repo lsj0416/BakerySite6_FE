@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BackHeader } from "@/components/back-header";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { COLORS } from "@/lib/theme";
 import * as settlementApi from "@/lib/api/settlement";
 import type { SettlementStatus } from "@/lib/api/settlement";
@@ -217,6 +218,7 @@ function PayoutTab() {
   const [settlementId, setSettlementId] = useState<number | null>(null);
   const [externalTxId, setExternalTxId] = useState<Record<number, string>>({});
   const [failureReason, setFailureReason] = useState<Record<number, string>>({});
+  const [payoutDialogOpen, setPayoutDialogOpen] = useState(false);
 
   const parsedSellerIdFilter = Number(sellerIdFilter);
   const sellerIdFilterValid = sellerIdFilter !== "" && Number.isFinite(parsedSellerIdFilter) && parsedSellerIdFilter > 0;
@@ -275,19 +277,11 @@ function PayoutTab() {
 
   const startMutation = useMutation({
     mutationFn: () => settlementApi.startPayout(settlementId!, nextIdempotencyKey),
-    onSuccess: invalidatePayouts,
+    onSuccess: () => {
+      invalidatePayouts();
+      setPayoutDialogOpen(false);
+    },
   });
-
-  function handleStartPayout() {
-    const settlement = settlementQuery.data;
-    if (!settlement) return;
-    const confirmed = window.confirm(
-      `정산 #${settlementId} (판매자 #${settlement.sellerId})에 대해 ` +
-        `${settlement.payoutAmount.toLocaleString()}원 지급을 시작합니다(${attemptNumber}번째 시도).\n\n` +
-        "이 작업은 실제 송금 절차를 시작하며 되돌릴 수 없습니다. 계속하시겠습니까?",
-    );
-    if (confirmed) startMutation.mutate();
-  }
 
   const completeMutation = useMutation({
     mutationFn: (payoutId: number) => settlementApi.completePayout(payoutId, externalTxId[payoutId] ?? ""),
@@ -458,11 +452,6 @@ function PayoutTab() {
             </p>
           )}
 
-          {startMutation.isError && (
-            <p className="text-xs" style={{ color: ERROR_COLOR }}>
-              {errorMessage(startMutation.error, "지급 시작에 실패했습니다.")}
-            </p>
-          )}
           {hasProcessingPayout && (
             <p className="text-xs" style={{ color: COLORS.muted }}>
               이미 처리 중인 지급 건이 있습니다. 완료/실패 처리 후 다시 시도해주세요.
@@ -470,13 +459,61 @@ function PayoutTab() {
           )}
           <button
             type="button"
-            onClick={handleStartPayout}
+            onClick={() => setPayoutDialogOpen(true)}
             disabled={startMutation.isPending || hasProcessingPayout || !settlementQuery.data}
             className="py-2.5 rounded-lg text-sm font-semibold disabled:opacity-60"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >
             {startMutation.isPending ? "시작 중..." : `정산 #${settlementId} 지급 시작`}
           </button>
+
+          <ConfirmDialog
+            open={payoutDialogOpen}
+            title="정산 지급을 시작하시겠어요?"
+            confirmLabel="지급 시작"
+            cancelLabel="닫기"
+            destructive
+            isPending={startMutation.isPending}
+            onConfirm={() => startMutation.mutate()}
+            onCancel={() => setPayoutDialogOpen(false)}
+          >
+            {settlementQuery.data && (
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: COLORS.muted }}>정산 ID</span>
+                  <span style={{ color: COLORS.text }}>{settlementId}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: COLORS.muted }}>판매자</span>
+                  <span style={{ color: COLORS.text }}>#{settlementQuery.data.sellerId}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: COLORS.muted }}>정산 기간</span>
+                  <span style={{ color: COLORS.text }}>
+                    {settlementQuery.data.periodStart} ~ {settlementQuery.data.periodEnd}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: COLORS.muted }}>지급액</span>
+                  <span className="font-semibold" style={{ color: COLORS.text }}>
+                    {settlementQuery.data.payoutAmount.toLocaleString()}원
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span style={{ color: COLORS.muted }}>시도 번호</span>
+                  <span style={{ color: COLORS.text }}>{attemptNumber}번째</span>
+                </div>
+              </div>
+            )}
+            <p className="mt-3 text-xs" style={{ color: COLORS.muted }}>
+              이 작업은 실제 송금 절차를 시작하며 되돌릴 수 없습니다.
+            </p>
+            {startMutation.isError && (
+              <p className="mt-2 text-xs" style={{ color: ERROR_COLOR }}>
+                {errorMessage(startMutation.error, "지급 시작에 실패했습니다.")}
+              </p>
+            )}
+          </ConfirmDialog>
 
           {payoutsQuery.data && payoutsQuery.data.payouts.length === 0 && (
             <p className="text-sm" style={{ color: COLORS.muted }}>
@@ -530,7 +567,10 @@ function PayoutTab() {
                     <button
                       type="button"
                       onClick={() => completeMutation.mutate(payout.payoutId)}
-                      disabled={completeMutation.isPending && completeMutation.variables === payout.payoutId}
+                      disabled={
+                        (completeMutation.isPending && completeMutation.variables === payout.payoutId) ||
+                        (externalTxId[payout.payoutId] ?? "").trim() === ""
+                      }
                       className="px-3 py-2 rounded-lg text-sm font-semibold disabled:opacity-60 shrink-0"
                       style={{ background: COLORS.green, color: COLORS.bg }}
                     >
@@ -550,7 +590,10 @@ function PayoutTab() {
                     <button
                       type="button"
                       onClick={() => failMutation.mutate(payout.payoutId)}
-                      disabled={failMutation.isPending && failMutation.variables === payout.payoutId}
+                      disabled={
+                        (failMutation.isPending && failMutation.variables === payout.payoutId) ||
+                        (failureReason[payout.payoutId] ?? "").trim() === ""
+                      }
                       className="px-3 py-2 rounded-lg text-sm disabled:opacity-60 shrink-0"
                       style={{ border: `1px solid ${COLORS.border}`, color: COLORS.text }}
                     >
