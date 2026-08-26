@@ -15,6 +15,7 @@ import {
   type OrderPayOutcome,
 } from "@/lib/api/order";
 import * as paymentApi from "@/lib/api/payment";
+import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import {
   clearProcessingMarker,
@@ -283,7 +284,7 @@ export function OrderView() {
             >
               <BreadBox
                 className="w-[72px] h-[72px] rounded-lg flex-shrink-0"
-                src={item.imageUrl}
+                src={productImageUrl(item.imageUrl)}
                 label={item.productName}
               />
               <div className="flex-1">

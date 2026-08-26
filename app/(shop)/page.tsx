@@ -81,7 +81,7 @@ export default function HomePage() {
         </div>
 
         <Link href={featured ? `/drops/${featured.dropId}` : "/categories"} className="group relative min-h-[340px] overflow-hidden rounded-[24px] sm:min-h-[400px] lg:min-h-[480px] lg:rounded-[28px]" style={{ background: COLORS.accentSoft }}>
-          <BreadBox label={featured?.name ?? "오늘의 베이커리"} src={featured?.imageUrl} className="absolute inset-0 h-full w-full transition-transform duration-700 group-hover:scale-105" />
+          <BreadBox label={featured?.name ?? "오늘의 베이커리"} src={featured ? productApi.productImageUrl(featured.imageUrl) : undefined} className="absolute inset-0 h-full w-full transition-transform duration-700 group-hover:scale-105" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/5 to-transparent" />
           <div className="absolute left-5 right-5 top-5 flex items-center justify-between">
             <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold" style={{ color: COLORS.accent }}>오늘의 드롭</span>

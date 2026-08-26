@@ -9,6 +9,7 @@ import { BreadBox } from "@/components/bread-box";
 import { DropBadge } from "@/components/drop-badge";
 import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
+import { productImageUrl } from "@/lib/api/product";
 import { toDropStatus } from "@/lib/types";
 import { fmtDateTime } from "@/lib/format";
 import {
@@ -75,7 +76,7 @@ export default function WishlistPage() {
               style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
             >
               <div className="flex gap-3">
-                <BreadBox className="w-16 h-16 rounded-lg flex-shrink-0" src={drop.imageUrl} label={drop.name} />
+                <BreadBox className="w-16 h-16 rounded-lg flex-shrink-0" src={productImageUrl(drop.imageUrl)} label={drop.name} />
                 <div className="flex-1">
                   <div className="mb-1">
                     <DropBadge status={status} />

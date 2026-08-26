@@ -11,6 +11,7 @@ import { DropBadge } from "@/components/drop-badge";
 import { ProductCard } from "@/components/product-card";
 import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
+import { productImageUrl } from "@/lib/api/product";
 import * as recommendationApi from "@/lib/api/recommendation";
 import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
 import { ApiException } from "@/lib/api/types";
@@ -173,7 +174,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         <BreadBox
           label={drop.name}
           className="absolute inset-0"
-          src={drop.imageUrl}
+          src={productImageUrl(drop.imageUrl)}
           dim={status === "SOLD_OUT" || status === "CLOSED"}
         />
 
