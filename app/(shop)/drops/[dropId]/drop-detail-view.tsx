@@ -459,7 +459,7 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
 
         {!isAuthenticated && (status === "SCHEDULED" || status === "ON_SALE") && (
           <Link
-            href="/login"
+            href={`/login?returnTo=${encodeURIComponent(`/drops/${dropId}`)}`}
             className="block w-full py-3.5 rounded-lg text-sm font-bold text-center"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >

@@ -1,10 +1,12 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
+import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Phone } from "lucide-react";
 import { BackHeader } from "@/components/back-header";
 import { BreadBox } from "@/components/bread-box";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { COLORS } from "@/lib/theme";
 import * as orderApi from "@/lib/api/order";
 import { ApiException } from "@/lib/api/types";
@@ -13,10 +15,11 @@ import { fmtDateTime, fmtPickup, getDDay } from "@/lib/format";
 
 export default function OrderDetailPage() {
   const params = useParams<{ orderId: string }>();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const orderId = Number(params.orderId);
   const orderIdValid = Number.isFinite(orderId) && orderId > 0;
+
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   const orderQuery = useQuery({
     queryKey: ["order", orderId],
@@ -27,9 +30,11 @@ export default function OrderDetailPage() {
   const cancelMutation = useMutation({
     mutationFn: () => orderApi.cancelOrder(orderId),
     onSuccess: () => {
+      // 목록으로 이동하지 않고 같은 화면에서 최신 CANCELED 상태를 보여준다.
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["deposit-account"] });
-      router.push("/orders");
+      setCancelDialogOpen(false);
     },
   });
 
@@ -183,13 +188,6 @@ export default function OrderDetailPage() {
                   </div>
                 )}
 
-                {cancelMutation.isError && (
-                  <p className="text-xs text-center mb-3 px-4" style={{ color: "#E0554F" }}>
-                    {cancelMutation.error instanceof ApiException
-                      ? cancelMutation.error.message
-                      : "주문 취소에 실패했습니다."}
-                  </p>
-                )}
               </div>
 
               {canCancel && (
@@ -198,7 +196,7 @@ export default function OrderDetailPage() {
                   style={{ background: COLORS.surface, borderTop: `1px solid ${COLORS.border}` }}
                 >
                   <button
-                    onClick={() => cancelMutation.mutate()}
+                    onClick={() => setCancelDialogOpen(true)}
                     disabled={cancelMutation.isPending}
                     className="w-full py-3 rounded-lg text-sm font-medium disabled:opacity-60"
                     style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}
@@ -207,6 +205,51 @@ export default function OrderDetailPage() {
                   </button>
                 </div>
               )}
+
+              <ConfirmDialog
+                open={cancelDialogOpen}
+                title="주문을 취소하시겠어요?"
+                confirmLabel="취소하기"
+                cancelLabel="닫기"
+                destructive
+                isPending={cancelMutation.isPending}
+                onConfirm={() => cancelMutation.mutate()}
+                onCancel={() => setCancelDialogOpen(false)}
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: COLORS.muted }}>주문번호</span>
+                    <span style={{ color: COLORS.text }}>{order.orderId}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: COLORS.muted }}>상품</span>
+                    <span style={{ color: COLORS.text }}>
+                      {order.items[0].productName}
+                      {order.items.length > 1 ? ` 외 ${order.items.length - 1}개` : ""}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: COLORS.muted }}>주문 금액</span>
+                    <span style={{ color: COLORS.text }}>{order.totalAmount.toLocaleString()}원</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: COLORS.muted }}>환불 예정 금액</span>
+                    <span className="font-semibold" style={{ color: COLORS.text }}>
+                      {order.totalAmount.toLocaleString()}원 (전액, 예치금으로 즉시 환불)
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs" style={{ color: COLORS.muted }}>
+                  취소하면 되돌릴 수 없습니다.
+                </p>
+                {cancelMutation.isError && (
+                  <p className="mt-2 text-xs" style={{ color: "#E0554F" }}>
+                    {cancelMutation.error instanceof ApiException
+                      ? cancelMutation.error.message
+                      : "주문 취소에 실패했습니다."}
+                  </p>
+                )}
+              </ConfirmDialog>
             </>
           );
         })()}

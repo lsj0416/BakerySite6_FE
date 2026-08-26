@@ -13,6 +13,13 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 let reissuePromise: Promise<string> | null = null;
 
+/** 세션 만료로 강제 로그아웃될 때 현재 화면으로 돌아올 수 있게 returnTo를 실어 보낸다. */
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  const returnTo = `${window.location.pathname}${window.location.search}`;
+  window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 /**
  * accessToken(JWT)의 exp claim만 디코딩해서 만료 여부를 본다(서명 검증 아님 — 그건
  * 어차피 백엔드가 함, 여긴 "미리 갱신할지" 판단용). skewSeconds만큼 여유를 둬서
@@ -94,7 +101,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       accessToken = await reissueAccessToken();
     } catch {
       clearTokens();
-      if (typeof window !== "undefined") window.location.href = "/login";
+      redirectToLogin();
       throw new ApiException("ME002", "로그인이 만료되었습니다. 다시 로그인해주세요.");
     }
   }
@@ -114,7 +121,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         res = await send(newAccessToken);
       } catch {
         clearTokens();
-        if (typeof window !== "undefined") window.location.href = "/login";
+        redirectToLogin();
         throw new ApiException("ME002", "유효하지 않은 인증 토큰입니다.");
       }
     } else if (cloned === null) {
@@ -127,7 +134,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
        * 재시도해도 항상 같은 결과이므로 여기서 바로 재로그인으로 유도한다.
        */
       clearTokens();
-      if (typeof window !== "undefined") window.location.href = "/login";
+      redirectToLogin();
       throw new ApiException("ME002", "로그인이 만료되었습니다. 다시 로그인해주세요.");
     }
   }

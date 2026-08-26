@@ -238,7 +238,61 @@
   ```
 - **원인:** `ProductDocument`의 `status` 필드에 별도 매핑 애너테이션이 없어서 Elasticsearch가 동적 매핑으로 `status`를 `text`(한글 분석기 대상은 아니지만 기본 standard analyzer로 토큰화됨) + `status.keyword`(원문 그대로 저장되는 서브필드) 두 가지로 만듭니다. `ProductSearchAdapter.buildSearchQuery()`와 `autocomplete()`가 `.field("status")`로 `term` 쿼리를 날리는데, `term` 쿼리는 분석을 거치지 않고 저장된 토큰과 정확히 일치해야 매치됩니다. `text` 필드는 인덱싱 시 소문자화 등 분석을 거치므로 저장된 토큰이 `SELLING`이 아니라 `selling`(또는 그 이상으로 변형된 토큰)이 되어, 대문자 원문 `"SELLING"`으로 날린 `term` 쿼리와 절대 일치하지 않습니다. `status.keyword` 서브필드를 써야 원문 그대로 매치됩니다.
 - **권장 수정 (로컬 코드 수정은 적용하지 않음 — 진단만 함):** `ProductSearchAdapter`에서 `status` term 쿼리가 걸린 두 곳(`buildSearchQuery`의 판매중 필터, `autocomplete`의 판매중 필터) 모두 필드명을 `"status.keyword"`로 바꾸는 것을 제안합니다. 근본적으로는 `ProductDocument`에 `@Field(type = FieldType.Keyword)`로 `status`를 명시적으로 매핑해서 애초에 동적 매핑에 의존하지 않게 하는 편이 이런 클래스의 버그를 구조적으로 막습니다(그러면 기존 인덱스는 재색인 필요).
-- **영향:** 매우 심각 — 검색어/카테고리 필터 유무와 무관하게 `GET /api/v1/products/product-list`가 **항상 빈 목록**을 반환하므로, 홈 화면 "상시 판매" 섹션·카테고리 페이지·검색 페이지 전부 일반상품이 하나도 안 보입니다. 프론트 카탈로그 동기화 작업(`docs/ai/product-catalog-sync-plan.md`) 및 추천/검색 연동 작업(`docs/ai/recommendation-search-integration-plan.md`) 둘 다 이 버그 때문에 실제 데이터로는 검증이 불가능한 상태였습니다(빈 상태 UI만 확인 가능).
+- **영향:** 매우 심각 — 검색어/카테고리 필터 유무와 무관하게 `GET /api/v1/products/product-list`가 **항상 빈 목록**을 반환하므로, 홈 화면 "상시 판매" 섹션·카테고리 페이지·검색 페이지 전부 일반상품이 하나도 안 보입니다. 프론트 카탈로그 동기화 작업(`docs/ai/product-catalog-sync-plan.md`) 및 추천/검색 연동 작업(`docs/ai/recommendation-search-integration-plan.md`) 둘 다 이 버그 때문에 실제 데이터로는 검증이 불가능한 상태였습니다(빈 상태 UI만 확인 가능). (2026-08-26 브라우저 E2E로 재확인: 현재는 `product-list`가 정상적으로 데이터를 반환함 — 그 사이 수정된 것으로 보이나 이 항목은 "해결됨"으로 옮기기 전 백엔드팀 확인 필요.)
+
+### 8. 한 번이라도 장바구니를 완전히 비운 회원은 이후 영구히 `POST /api/v1/cart/items`가 `409 CA001`
+
+- **발견일:** 2026-08-26 (브라우저 E2E, Flow C 일반상품 장바구니 검증 중)
+- **관련 도메인:** cart (`docs/cart-api.md`, 단 이 문서 자체가 구식 설계를 기술하고 있어 최신화 필요 — 아래 참고)
+- **증상:** 특정 회원 계정(`E2E_MEMBER_EMAIL`)에서 상품 상세 → "장바구니" 버튼을 누르면 매번 `409 CA001 (CART_ALREADY_EXISTS, "이미 장바구니에 담긴 상품이 있습니다.")`가 남. 그런데 같은 시점에 `GET /api/v1/cart`는 항상 `{cartId: null, items: [], totalAmount: 0}` — 즉 화면·API 응답상으로는 장바구니가 완전히 비어 있는데 담기만 항상 거부됨. 재현율 100%(연속 3회 재시도 모두 동일), 새로고침/재로그인과 무관하게 지속.
+- **재현:**
+  ```bash
+  # 로그인 후 access token으로
+  curl -s http://localhost:8089/api/v1/cart -H "Authorization: Bearer $TOKEN"
+  # → {"success":true,"data":{"cartId":null,"items":[],"totalAmount":0}}
+
+  curl -s -X POST http://localhost:8089/api/v1/cart/items \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+    -d '{"productId":15,"quantity":1,"pickUpDate":"2026-08-27"}'
+  # → 409 {"success":false,"error":{"code":"CA001","message":"이미 장바구니에 담긴 상품이 있습니다."}}
+  ```
+- **원인(코드 확인, 확정은 아님):** `CartRepositoryAdapter.save()`(`src/main/java/com/openbake/cart/infrastructure/CartRepositoryAdapter.java:20-30`)는 `carts.member_id` UNIQUE 제약 위반을 잡아 `CART_ALREADY_EXISTS`로 변환한다 — 주석상 의도는 "장바구니가 없던 회원이 담기를 더블클릭해 두 요청이 함께 `findByMemberId` 조회를 통과한 경우"의 동시성 방어다. 하지만 이번 재현은 순차 요청(더블클릭 아님)이고 `findByMemberId`는 매번 빈 값을 반환하는데 `save()`는 매번 UNIQUE 위반에 부딪힌다 — 이는 `carts` 테이블에 이 `member_id`로 된 행이 실제로 남아 있는데 `CartJpaRepository.findByMemberId`(파생 쿼리, `CartJpaRepository.java`)가 그 행을 찾지 못하고 있다는 뜻이다. 항목을 마지막 하나까지 지웠을 때 `Cart` 행 자체는 삭제되지 않고 0건짜리 행으로 남는 경로가 있는지, 혹은 다른 원인으로 고아 행이 생겼는지는 DB를 직접 조회하지 않고는 확정할 수 없어 백엔드팀 확인이 필요하다(이 세션은 DB에 직접 접근하지 않았음).
+- **영향:** 심각 — 한 번 이 상태에 빠진 회원은 **UI 조작만으로는 영구히** 일반상품을 장바구니에 담을 수 없다(장바구니를 거치지 않는 바로구매는 영향 없음, `POST /orders {productId,quantity,pickUpDate}`는 cart 테이블을 안 건드림). 이번 세션에서 사용한 `E2E_MEMBER_EMAIL` 계정이 정확히 이 상태라 Flow C(일반상품 장바구니) 브라우저 검증을 카트 담기 단계에서 진행하지 못했다.
+- **프론트 대응:** 하지 않음 — FE에서 우회 불가능한 서버 상태 버그로 판단해 코드 변경 없이 이 문서에만 기록. `app/(shop)/cart/page.tsx`의 `checkoutMutation` 에러 처리(`checkoutMutation.isError` 블록)는 이미 `ApiException.message`를 그대로 보여주므로, 이 에러가 나도 사용자에게 "이미 장바구니에 담긴 상품이 있습니다"라는 실제 서버 메시지가 그대로 뜨긴 한다 — 다만 이 메시지 자체가 실제 화면 상태(빈 장바구니)와 모순돼 사용자가 이해할 수 없는 상태다.
+
+### 9. 같은 계정에서 `activeMemberId` "진행 중 주문 슬롯"도 동일한 패턴으로 고아 상태 — 신규 주문 생성이 영구히 `OR006`
+
+- **발견일:** 2026-08-26 (브라우저 E2E, Flow D 바로구매 검증 중 — #8과 같은 `E2E_MEMBER_EMAIL` 계정에서 연달아 발견)
+- **관련 도메인:** order (`src/main/java/com/openbake/order/application/OrderService.java`, `src/main/java/com/openbake/order/domain/Order.java`)
+- **증상:** `POST /api/v1/orders`(바로구매, `{productId,quantity,pickUpDate}`)가 항상 `409 OR006 (DUPLICATE_REQUEST, "중복된 요청입니다.")`. 그런데 서버 코드 주석 자체가 "OR006이 나면 프론트가 `GET /orders/pending`으로 기존 주문을 보여준다"고 명시하는데도(`OrderService.java:134-135`), 같은 계정으로 `GET /api/v1/orders/pending`을 호출하면 매번 `{"success":true}`뿐이고 `data` 필드가 없음(주문 없음). 재현율 100%(연속 7회, ~5분 간격으로 재시도해도 동일 — 아래 "自가 치유 시도" 참고).
+- **재현:**
+  ```bash
+  curl -s -X POST http://localhost:8089/api/v1/orders \
+    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+    -d '{"productId":15,"quantity":1,"pickUpDate":"2026-08-27"}'
+  # → 409 {"success":false,"error":{"code":"OR006","message":"중복된 요청입니다."}}
+
+  curl -s http://localhost:8089/api/v1/orders/pending -H "Authorization: Bearer $TOKEN"
+  # → {"success":true}   (data 없음 — "진행 중 주문 없음")
+  ```
+- **원인(코드 확인, 확정은 아님):** `OrderService.guardActiveOrder`는 `orderRepository.findByActiveMemberIdForUpdate(memberId)`(JPQL `where o.activeMemberId = :memberId`, `PESSIMISTIC_WRITE` 락)로 진행 중 주문을 찾아 있으면 `OR006`을 던진다. `OrderService.getPendingOrder`는 `orderRepository.findByActiveMemberId(memberId)`(같은 조건, 락만 없음)를 쓴다 — **두 쿼리 조건이 사실상 동일**해서 한쪽이 행을 찾으면 다른 쪽도 찾아야 정상인데 실제로는 갈린다. `Order.java`의 `activeMemberId`는 생성 시 회원 ID로 채워지고(`createPending`) `markPaid`/`markFailed`/`markExpired`/`cancel` 전부 `releaseActiveSlot()`으로 정상적으로 비운다 — 즉 도메인 모델의 정상 전이 경로 자체는 슬롯 반납을 빠뜨리지 않는다. 다만 그 반납이 "누수"날 수 있다는 걸 코드가 이미 알고 있다: `Order.releaseLeakedSlot()`(터미널 상태인데 슬롯이 안 비워진 행을 강제로 비움)과 이를 5분마다 돌리는 `OrderExpirationScheduler.releaseLeakedSlots()`가 별도로 존재한다. **이 배치를 신뢰하고 5분 간격으로 7회(총 ~5분+) 재시도했지만 전혀 해소되지 않았다** — 두 가지 가능성이 남는다: (a) 문제의 주문이 실제로는 터미널 상태가 아니라 여전히 `PENDING`인데(그래서 `releaseLeakedSlot()`의 `!orderState.isTerminal()` 가드에 걸려 배치가 건드리지 않음) `findByActiveMemberId`(non-lock)만 그 행을 못 찾는 별개의 조회 버그이거나, (b) 로컬 `root` 프로세스에서 `@EnableScheduling`/`OrderExpirationScheduler`가 이번 세션 기준으로 아예 안 돌고 있는 것. DB를 직접 조회(`select * from orders where active_member_id = ?` 또는 `member_id = ? order by order_id desc`)하지 않고는 어느 쪽인지, 그리고 애초에 이 슬롯이 왜/언제 새게 됐는지 확정할 수 없다.
+- **영향:** 심각 — 이 상태에 빠진 회원은 카트 경유든 바로구매든 드롭 우선권이 없는 한(`route != DROP`) **신규 주문을 영구히 생성할 수 없다**. `E2E_MEMBER_EMAIL` 계정이 #8(카트)에 이어 이 상태이기도 해서, 이번 세션은 Flow C·D(일반상품 장바구니, 바로구매) 둘 다 이 계정으로는 브라우저 검증을 마치지 못했다. 드롭 구매(route == DROP)는 영향 없음 — `guardActiveOrder`가 드롭에는 우선권을 줘서 기존 주문을 자동 만료시키고 진행한다.
+- **프론트 대응:** 하지 않음 — FE의 OR006 처리(`createPendingOrder` 실패 시 `getPendingOrder()`로 이어가기, `app/(shop)/cart/page.tsx`·`product-detail-view.tsx`·`drop-detail-view.tsx` 공통 패턴)는 서버가 "OR006이면 `/orders/pending`에 그 주문이 있다"고 보장한다는 전제로 짜여 있고 그 전제 자체가 이번 계정에서 깨져 있다 — FE가 짐작으로 다르게 처리하면(예: OR006을 다른 메시지로 덮어쓰기) 문제를 감추기만 하므로 코드는 그대로 두고 여기에만 기록한다.
+
+### 10. `GlobalExceptionHandler`가 모든 `DataIntegrityViolationException`을 주문 도메인 코드 `OR006`으로 응답 — 무관한 도메인 오류가 전부 "중복된 요청입니다"로 나옴
+
+- **발견일:** 2026-08-26 (브라우저 E2E, Flow G 판매자 상품 삭제 검증 중 — `DELETE /api/v1/products/{id}`가 이유 없이 `409 OR006`)
+- **관련 도메인:** 공통 예외 처리(`common/src/main/java/com/openbake/common/exception/GlobalExceptionHandler.java:68-71`), 이번엔 product 도메인에서 촉발됨
+- **증상:** 판매자가 자신이 등록한 일반상품(E2E 테스트로 만든 `productId=16`)을 삭제하면 매번 `409 {"code":"OR006","message":"중복된 요청입니다."}`. `ProductService.deleteProduct`/`deleteGeneralProduct` 소스를 확인했지만 이 경로 어디에도 `OR006`/`DUPLICATE_REQUEST`를 직접 던지는 코드가 없다 — `product.markDeleted()` 다음 `productChangedOutboxWriter.deleted(productId)`가 있을 뿐이다. 재현율 100%(연속 3회).
+- **재현:**
+  ```bash
+  curl -s -X DELETE http://localhost:8089/api/v1/products/16 -H "Authorization: Bearer $TOKEN"
+  # → 409 {"success":false,"error":{"code":"OR006","message":"중복된 요청입니다."}}
+  ```
+- **원인(코드 확인):** `GlobalExceptionHandler.handleDataIntegrityViolation`(68-71행)이 **모든** `DataIntegrityViolationException`(어느 테이블/도메인에서 나든 상관없이 앱 전역)을 `ErrorCode.DUPLICATE_REQUEST`(`OR006`, "중복된 요청입니다")로 고정 매핑한다. 이 코드는 이름·메시지 모두 order 도메인 전용으로 지어졌는데(`OrderService.guardActiveOrder`가 의도적으로 쓰는 바로 그 코드, 위 #9 참고) 전역 예외 핸들러의 "모든 DB 제약 위반"의 기본값으로 재사용되고 있다 — product 삭제가 실제로 어떤 제약을 위반했는지(예: `productChangedOutboxWriter`가 쓰는 outbox 테이블의 UNIQUE 제약, 혹은 다른 FK)는 이 핸들러가 원래 예외를 삼키고 `OR006`만 반환해서 알 수 없다. DB 로그나 서버 stdout(`root.log`)을 직접 봐야 실제 제약 위반 원인이 확정된다 — 이 세션은 로그 파일에 접근하지 않았다.
+- **영향:** 심각 — (a) **분류 오류**: order와 무관한 도메인(이번엔 product)의 DB 제약 위반이 전부 "주문이 중복됐다"는 엉뚱한 메시지로 사용자에게 노출된다 — 디버깅뿐 아니라 실사용자 경험도 오도한다. (b) **기능 장애**: 이 세션이 Flow G 검증용으로 만든 E2E 테스트 상품(`productId=16`, 이름 `E2E-20260826060858--테스트상품`)이 이 버그 때문에 **삭제되지 않고 그대로 남아있음** — `docs/backend-bug-reports.md` 원칙대로 프론트/DB를 임의로 건드리지 않았으니, 이 항목이 해결되면 그때 `DELETE /api/v1/products/16`으로 정리하면 된다.
+- **프론트 대응:** 하지 않음 — `app/seller/dashboard/page.tsx`의 `productDeleteMutation` 에러 처리는 이미 `ApiException.message`를 그대로 보여주므로("중복된 요청입니다"), 서버가 틀린 메시지를 주면 FE도 그 틀린 메시지를 그대로 보여줄 수밖에 없다. 서버 쪽에서 원래 예외를 보존해 정확한 코드로 응답하도록 고치는 게 맞다고 판단해 FE 우회 없이 기록만 함.
+- **정리 미완료:** 위 이유로 `productId=16`(E2E 테스트 상품)이 판매자 계정(`E2E_SELLER_EMAIL`)에 그대로 남아있음 — 이번 세션이 삭제를 시도했으나 이 버그로 실패했다.
 
 ---
 

@@ -172,3 +172,19 @@
     - `DropRepository`(도메인 포트)에 `findByDropStatusInAndDropStartBetweenOrderByDropStartAsc` 추가 — 기존 `getMyDrops`와 동일하게 `DropInventoryRepository.findByDropId`를 드롭별로 호출해 응답을 조립(N+1이지만 기존 관례를 그대로 따름).
     - 단위 테스트(`DropServiceTest`에 2건 추가), 컨트롤러 테스트(`DropControllerTest` 신규 2건) — drop 프레젠테이션 계층에 컨트롤러 테스트가 전무해 이번에 처음 추가됨. 전체 테스트 스위트(191건) 그린 확인.
 - **프론트 반영 완료(2026-07-29):** 홈 화면(`app/(shop)/page.tsx`)이 `GET /drops/today/drop` 단건 조회를 완전히 대체하고 `getUpcomingDrops()` 하나로 통합됨 — 목록의 첫 항목을 기존 "오늘의 드롭" 히어로 카드(카운트다운 포함)로, 나머지는 `dropStart` 날짜별로 그룹핑해 "다가오는 드롭" 섹션에 날짜 헤더 + 가로 스크롤 카드 리스트로 노출.
+
+---
+
+### 11. 게이트웨이가 `/internal/v1/**`(관리자 정산 API)를 라우팅도, 인증 헤더 주입도 하지 않아 관리자 정산 화면이 구조적으로 도달 불가능했음
+
+- **요청일:** 2026-08-26 / **해결일:** 2026-08-26
+- **관련 도메인:** settlement, gateway(`beadv7_7_BakerySite6_BE` — 이번엔 예외적으로 백엔드 레포를 직접 수정함, 사용자 명시적 승인받음)
+- **배경:** 브라우저 E2E로 `/admin/settlements`를 실제로 열어보니 정산 배치/목록/지급 이력 전부 "불러오는 중..."에서 멈춰 있었다. 원인을 추적한 결과 이전 세션들이 "`/internal/v1/**`는 게이트웨이가 라우팅하지 않아 외부에 안 뚫려 있다"는 걸 **보안상 장점**으로만 기록했는데(`docs/backend-bug-reports.md`의 이전 "해결됨" 항목, `ROADMAP.md` §3), 그 말은 곧 게이트웨이 단일 진입점만 쓰는 프론트(관리자 화면 포함)도 똑같이 도달할 수 없다는 뜻이었다 — 이전 검증은 코드 리딩 기반이었지 실제 게이트웨이 경유 브라우저 테스트가 아니었던 것으로 보인다. 실제로는 두 겹으로 막혀 있었다: (1) `api-gateway/application.yml`에 `/internal/**`를 매칭하는 라우트 자체가 없어 게이트웨이가 자체 404를 반환(브라우저에는 CORS 차단으로 보임 — 라우트 없는 응답엔 CORS 헤더가 안 붙어서), (2) 라우트를 추가해도 `JwtAuthenticationGlobalFilter.isApiRequest()`가 `/api/`로 시작하는 경로만 인증 필터를 태워서 `/internal/**` 요청은 유효한 관리자 토큰이 있어도 `X-Openbake-Member-Id`/`X-Openbake-Member-Role`이 안 채워진 채 root로 넘어가 401.
+- **재현(수정 전):** `curl http://localhost:8089/internal/v1/settlements` → 인증 헤더 유무와 무관하게 404(라우트 없음). 라우트만 추가한 뒤엔 유효한 관리자 토큰으로도 401(신원 헤더 미주입).
+- **적용한 수정(백엔드, 2026-08-26, 사용자 승인):**
+    - `api-gateway/src/main/resources/application.yml` — `core-api`(`Path=/api/**`) 라우트 옆에 `core-internal-api`(`Path=/internal/**`, `uri: ${CORE_SERVICE_URL:http://localhost:8080}`, `order: 10`) 라우트 추가. root의 `SecurityConfig`가 이미 갖고 있는 `hasRole("ADMIN")` 게이트는 그대로 두고 프록시 경로만 열었다.
+    - `api-gateway/src/main/java/com/openbake/gateway/filter/JwtAuthenticationGlobalFilter.java` — `isApiRequest()`가 `/api/` 외에 `/internal/`도 인식하도록 확장. 이 필터를 안 태우면 `PublicEndpointPolicy`/JWT 검증/신원 헤더 주입이 전부 스킵된다.
+    - 게이트웨이 프로세스만 재시작(사용자 승인, root/member/payment는 무관하게 그대로 둠 — 단, 이 과정과 별개로 세션 도중 메모리 부족으로 세 서비스가 죽어있던 것을 발견해 역시 사용자 승인 받아 함께 재기동함, 아래 최종 보고서의 "남은 위험" 참고).
+- **검증:** 재시작 후 `curl http://localhost:8089/internal/v1/settlements`(토큰 없음) → 401(정상 — 라우팅은 되고 인증만 거부). 관리자 계정으로 브라우저 E2E 재실행: `GET /internal/v1/settlement-batches?page=0&size=20` → 200, 화면에 실제 배치 실행 이력(`2026-07-01~2026-08-01 COMPLETED`)이 렌더링됨.
+- **프론트 반영:** 불필요 — FE(`app/admin/settlements/page.tsx`)는 처음부터 옳은 경로를 호출하고 있었다. 문제는 전적으로 게이트웨이 쪽이었다.
+- **참고:** 이 수정은 로컬 `api-gateway/application.yml`/`JwtAuthenticationGlobalFilter.java`에 직접 반영됐다(다른 백엔드 버그 리포트 항목들과 달리 "로컬 임시 수정, 레포 미반영"이 아니라 실제 파일을 고쳤다 — 백엔드 레포도 커밋되지 않은 변경 상태로 남아 있으니 백엔드팀이 리뷰 후 커밋할지 판단 필요). `ingress.yaml`(프로덕션)도 `/internal`을 라우팅하지 않는 건 동일하게 확인됐으므로, 배포 환경에도 같은 종류의 게이트웨이/ingress 라우트 추가가 필요할 것으로 보인다(이번 세션은 로컬 게이트웨이만 수정).

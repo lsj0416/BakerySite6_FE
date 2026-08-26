@@ -66,6 +66,18 @@ export function ProductDetailView({
     },
   });
 
+  // 두 버튼이 각자 자기 실패만 보여주게 한다 — 리셋 없이 error를 그대로 두면, 장바구니
+  // 담기가 실패한 채로 바로구매를 눌러도 addToCartMutation의 옛 에러가 우선순위상 계속
+  // 표시돼 방금 실패한 게 바로구매인지 장바구니인지 알 수 없었다(실제 버그로 확인됨).
+  function handleAddToCart() {
+    buyNowMutation.reset();
+    addToCartMutation.mutate();
+  }
+  function handleBuyNow() {
+    addToCartMutation.reset();
+    buyNowMutation.mutate();
+  }
+
   const errorMessage =
     addToCartMutation.error instanceof ApiException
       ? addToCartMutation.error.message
@@ -270,7 +282,7 @@ export function ProductDetailView({
           </button>
         ) : !isAuthenticated ? (
           <Link
-            href="/login"
+            href={`/login?returnTo=${encodeURIComponent(`/products/${productId}`)}`}
             className="block w-full py-3.5 rounded-lg text-sm font-bold text-center"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >
@@ -291,7 +303,7 @@ export function ProductDetailView({
             )}
             <div className="flex gap-2">
               <button
-                onClick={() => addToCartMutation.mutate()}
+                onClick={handleAddToCart}
                 disabled={
                   addToCartMutation.isPending ||
                   buyNowMutation.isPending ||
@@ -304,7 +316,7 @@ export function ProductDetailView({
                 {addToCartMutation.isPending ? "담는 중..." : "장바구니"}
               </button>
               <button
-                onClick={() => buyNowMutation.mutate()}
+                onClick={handleBuyNow}
                 disabled={
                   addToCartMutation.isPending ||
                   buyNowMutation.isPending ||

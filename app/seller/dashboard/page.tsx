@@ -112,14 +112,33 @@ export default function SellerDashboardPage() {
   });
   const maxPickupCnt = Math.max(...pickupChartData.map((d) => d.cnt), 1);
 
+  // "내 드롭" 목록과 같은 myDropsQuery를 재사용 — 별도 API 호출 없이 파생만 한다.
+  const activeDrops = myDropsQuery.data?.filter((d) => d.dropStatus === "ACTIVE") ?? [];
+  const nextUpcomingDrop = myDropsQuery.data
+    ?.filter((d) => d.dropStatus === "UPCOMING")
+    .sort((a, b) => a.dropStart.localeCompare(b.dropStart))[0];
+
   const deleteMutation = useMutation({
     mutationFn: (dropId: number) => dropApi.deleteDrop(dropId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myDrops"] }),
+    // 삭제한 드롭이 홈/카테고리 목록(["upcoming-drops", ...])과 그 상세(["drop-info", dropId])
+    // 캐시에 그대로 남아있으면, 삭제 직후 같은 세션에서 게스트/구매자 화면으로 이동했을 때
+    // 이미 없는 드롭이 계속 보이거나(목록) 눌렀을 때 404로 깨진다(상세). invalidateQueries는
+    // 접두 일치라 ["upcoming-drops"]로 넘겨도 ["upcoming-drops", 30] 등 파라미터가 붙은
+    // 변형까지 전부 무효화된다.
+    onSuccess: (_data, dropId) => {
+      queryClient.invalidateQueries({ queryKey: ["myDrops"] });
+      queryClient.invalidateQueries({ queryKey: ["upcoming-drops"] });
+      queryClient.invalidateQueries({ queryKey: ["drop-info", dropId] });
+    },
   });
 
   const productDeleteMutation = useMutation({
     mutationFn: (productId: number) => productApi.deleteProduct(productId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myProducts"] }),
+    onSuccess: (_data, productId) => {
+      queryClient.invalidateQueries({ queryKey: ["myProducts"] });
+      queryClient.invalidateQueries({ queryKey: ["general-products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-info", productId] });
+    },
   });
 
   function handleDelete(dropId: number) {
@@ -208,6 +227,84 @@ export default function SellerDashboardPage() {
               >
                 반려 사유: {seller.rejectReason}
               </p>
+            )}
+          </div>
+        )}
+
+        {isApproved && (
+          <div
+            className="rounded-xl p-4 flex flex-col gap-3"
+            style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
+          >
+            <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
+              드롭 현황
+            </p>
+
+            {myDropsQuery.isLoading && (
+              <p className="text-sm" style={{ color: COLORS.muted }}>
+                불러오는 중...
+              </p>
+            )}
+
+            {!myDropsQuery.isLoading && (
+              <>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold" style={{ color: COLORS.muted }}>
+                    진행 중인 드롭
+                  </span>
+                  {activeDrops.length === 0 && (
+                    <p className="text-sm" style={{ color: COLORS.muted }}>
+                      진행 중인 드롭이 없습니다.
+                    </p>
+                  )}
+                  {activeDrops.map((drop) => {
+                    const sold = drop.totalQuantity - drop.remainQuantity;
+                    const pct =
+                      drop.totalQuantity > 0 ? Math.round((sold / drop.totalQuantity) * 100) : 0;
+                    return (
+                      <div key={drop.dropId} className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm" style={{ color: COLORS.text }}>
+                            {drop.name}
+                          </span>
+                          <span className="text-xs" style={{ color: COLORS.muted }}>
+                            판매 {sold}/{drop.totalQuantity} ({pct}%)
+                          </span>
+                        </div>
+                        <div
+                          className="w-full h-1.5 rounded-full overflow-hidden"
+                          style={{ background: COLORS.accentSoft }}
+                        >
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${pct}%`, background: COLORS.accent }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-col gap-1 pt-2" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                  <span className="text-xs font-semibold" style={{ color: COLORS.muted }}>
+                    다음 드롭
+                  </span>
+                  {nextUpcomingDrop ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm" style={{ color: COLORS.text }}>
+                        {nextUpcomingDrop.name}
+                      </span>
+                      <span className="text-xs" style={{ color: COLORS.muted }}>
+                        {fmtDateTime(nextUpcomingDrop.dropStart)} 시작
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm" style={{ color: COLORS.muted }}>
+                      예정된 드롭이 없습니다.
+                    </p>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}
