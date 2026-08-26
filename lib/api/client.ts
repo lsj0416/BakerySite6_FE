@@ -131,7 +131,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
        * 않아 {success,error} envelope이 없음 — docs/backend-bug-reports.md 참고). 이걸
        * 그냥 res.json()에 넘기면 파싱 자체가 실패해서 ApiException이 아닌 raw error가
        * 던져지고, 화면엔 각 컴포넌트의 fallback 문구("OO에 실패했습니다")만 뜬다.
-       * 재시도해도 항상 같은 결과이므로 여기서 바로 재로그인으로 유도한다.
+       *
+       * ⚠️ 예전엔 여기서 곧장 clearTokens()+/login 리다이렉트를 했는데, recommendations
+       * 엔드포인트가 SecurityConfig의 JWT 필터 체인에 아예 등록이 안 돼 있어서(2026-08-21
+       * 확인, WWW-Authenticate: Basic 응답으로 확인됨) *유효한* 토큰으로도 이 bare 401을
+       * 반환하는 백엔드 버그가 있다. 홈 진입 시 추천 위젯이 이걸 맞으면 방금 로그인한
+       * 세션 전체가 날아가 로그인 화면으로 되돌아가는 문제가 있었다. bare 401/403이 항상
+       * "세션 무효"를 의미한다는 가정이 더 이상 성립하지 않으므로, 전역 로그아웃 대신
+       * 그냥 예외만 던지고 각 호출부(대부분 이미 isError를 부드럽게 처리함)에 맡긴다.
        */
       clearTokens();
       redirectToLogin();

@@ -89,7 +89,7 @@ export function dropToCatalogProduct(drop: DropProductInfoResponse): CatalogProd
     id: drop.dropId,
     name: drop.name,
     description: drop.description,
-    imageUrl: drop.imageUrl,
+    imageUrl: productImageUrl(drop.imageUrl),
     price: drop.price,
     remainQuantity: drop.remainQuantity,
     status: toDropStatus(drop.dropStatus, drop.remainQuantity),

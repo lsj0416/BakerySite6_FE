@@ -15,6 +15,7 @@ import {
   type OrderPayOutcome,
 } from "@/lib/api/order";
 import * as paymentApi from "@/lib/api/payment";
+import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import {
   clearProcessingMarker,
@@ -248,6 +249,23 @@ export function OrderView() {
       </div>
     );
   }
+          <BreadBox
+            className="w-[72px] h-[72px] rounded-lg flex-shrink-0"
+            src={productImageUrl(drop.imageUrl)}
+            label={drop.name}
+          />
+          <div className="flex-1">
+            <p className="text-sm font-semibold" style={{ color: COLORS.text }}>
+              {drop.name}
+            </p>
+            <p className="text-sm" style={{ color: COLORS.text }}>
+              {drop.price.toLocaleString()}원
+            </p>
+          </div>
+          <span className="text-sm font-semibold flex-shrink-0" style={{ color: COLORS.text }}>
+            {qty}개
+          </span>
+        </div>
 
   const balance = accountQuery.data?.balance ?? null;
   // reservation.status가 "active"일 때만 유효한 ms 값을 가지므로, 그 외에는 항상 0 —
