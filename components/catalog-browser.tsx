@@ -18,20 +18,18 @@ export function CatalogBrowser({
   categorySlug,
   keyword,
   initialCategory,
-  initialKind,
   initialSort,
 }: {
   categorySlug?: string;
   keyword?: string;
   initialCategory?: ProductCategory;
-  initialKind?: "DROP" | "GENERAL";
   initialSort?: SortKey;
 }) {
   const [sort, setSort] = useState<SortKey>(initialSort ?? "soon");
   // /categories/[slug]로 들어온 경우(홈 화면 CATEGORY 타일)는 그 슬러그가 드롭 전용
   // 추론 카테고리라 드롭 목록으로 시작한다. 슬러그 없이 /categories로 바로 들어오면
-  // 일반상품이 기본으로 보인다 — "드롭" 칩은 그 카테고리 줄 맨 오른쪽에만 노출.
-  const [kind, setKind] = useState<CatalogKind>(categorySlug ? "DROP" : initialKind ?? "GENERAL");
+  // 일반상품만 보인다 — 드롭은 별도 /drop 페이지에서 다룬다.
+  const [kind] = useState<CatalogKind>(categorySlug ? "DROP" : "GENERAL");
   const [generalCategory, setGeneralCategory] = useState<ProductCategory | undefined>(initialCategory);
   const [generalPage, setGeneralPage] = useState(0);
   const selectedCategory = categorySlug ? findCategory(categorySlug) : undefined;
@@ -61,13 +59,7 @@ export function CatalogBrowser({
   });
 
   function selectGeneralCategory(category: ProductCategory | undefined) {
-    setKind("GENERAL");
     setGeneralCategory(category);
-    setGeneralPage(0);
-  }
-
-  function selectKind(next: CatalogKind) {
-    setKind(next);
     setGeneralPage(0);
   }
 
@@ -138,8 +130,7 @@ export function CatalogBrowser({
           })}
         </div>
       ) : (
-        // 기본 진입(/categories) — 일반상품 카테고리(백엔드 enum)가 기본이고,
-        // 맨 오른쪽 "드롭" 칩을 누르면 한정 드롭 목록으로 전환된다.
+        // 기본 진입(/categories) — 일반상품만 다룬다. 드롭은 별도 /drop 페이지.
         <div className="mb-8 flex gap-2 overflow-x-auto pb-2">
           <button
             onClick={() => selectGeneralCategory(undefined)}
@@ -165,13 +156,6 @@ export function CatalogBrowser({
               </button>
             );
           })}
-          <button
-            onClick={() => selectKind("DROP")}
-            className="shrink-0 rounded-full border px-4 py-2 text-sm font-semibold"
-            style={{ background: kind === "DROP" ? COLORS.deep : COLORS.surface, color: kind === "DROP" ? "#fff" : COLORS.text, borderColor: COLORS.border }}
-          >
-            드롭
-          </button>
         </div>
       )}
 

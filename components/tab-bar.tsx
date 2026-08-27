@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { Bookmark, Grid2X2, Home, ShoppingBag, User } from "lucide-react";
+import { Grid2X2, Home, ShoppingBag, User } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 
 const TABS = [
   { href: "/", label: "홈", icon: Home },
   { href: "/categories", label: "카테고리", icon: Grid2X2 },
-  { href: "/wishlist", label: "찜", icon: Bookmark },
   { href: "/orders", label: "주문내역", icon: ShoppingBag },
   { href: "/mypage", label: "마이", icon: User },
 ] as const;

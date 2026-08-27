@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, ChevronLeft, Heart, MapPin, Minus, Plus } from "lucide-react";
+import { Check, ChevronLeft, MapPin, Minus, Plus } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
 import { DropBadge } from "@/components/drop-badge";
@@ -18,28 +18,15 @@ import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { pad, msToHMS, fmtDateTime, fmtPickup } from "@/lib/format";
-import {
-  EMPTY_WISHLIST,
-  getWishlist,
-  subscribeWishlist,
-  toggleWishlist,
-} from "@/lib/wishlist/wishlist-storage";
 
 export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi.DropInfo }) {
   const router = useRouter();
-  const { memberId, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-
-  const wishlist = useSyncExternalStore(
-    subscribeWishlist,
-    () => (memberId !== null ? getWishlist(memberId) : EMPTY_WISHLIST),
-    () => EMPTY_WISHLIST,
-  );
-  const isHearted = wishlist.includes(dropId);
 
   const status = toDropStatus(drop.dropStatus, drop.remainQuantity);
   const pct = drop.totalQuantity > 0 ? (drop.remainQuantity / drop.totalQuantity) * 100 : 0;
@@ -230,19 +217,6 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
           aria-label="뒤로가기"
         >
           <ChevronLeft size={20} color="#fff" />
-        </button>
-        <button
-          onClick={() => memberId !== null && toggleWishlist(memberId, dropId)}
-          disabled={memberId === null}
-          className="absolute top-12 right-4 w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ background: "rgba(255,255,255,0.14)", backdropFilter: "blur(6px)" }}
-          aria-label="찜하기"
-        >
-          <Heart
-            size={18}
-            color={isHearted ? COLORS.accent : "#fff"}
-            fill={isHearted ? COLORS.accent : "none"}
-          />
         </button>
       </div>
 
@@ -455,22 +429,8 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
             className="block w-full py-3.5 rounded-lg text-sm font-bold text-center"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >
-            {status === "SCHEDULED" ? "로그인하고 찜하기" : "로그인하고 구매하기"}
+            로그인하고 구매하기
           </Link>
-        )}
-        {isAuthenticated && status === "SCHEDULED" && (
-          <button
-            onClick={() => memberId !== null && toggleWishlist(memberId, dropId)}
-            disabled={memberId === null}
-            className="w-full py-3.5 rounded-lg text-sm font-semibold"
-            style={{
-              border: `1.5px solid ${isHearted ? COLORS.accent : COLORS.border}`,
-              color: isHearted ? COLORS.accent : COLORS.text,
-              background: "transparent",
-            }}
-          >
-            {isHearted ? "♥ 찜 완료" : "찜하고 알림받기"}
-          </button>
         )}
         {isAuthenticated && status === "ON_SALE" && (
           <button

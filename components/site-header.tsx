@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bookmark, ChevronDown, Search, ShoppingBag, ShoppingCart, UserRound, Wallet } from "lucide-react";
+import { ChevronDown, Search, ShoppingBag, ShoppingCart, UserRound, Wallet } from "lucide-react";
 import { PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
 import { COLORS } from "@/lib/theme";
 
@@ -76,7 +76,6 @@ export function SiteHeader() {
           {[
             { href: "/cart", label: "장바구니", icon: ShoppingCart },
             { href: "/wallet", label: "예치금", icon: Wallet },
-            { href: "/wishlist", label: "찜", icon: Bookmark },
             { href: "/orders", label: "주문", icon: ShoppingBag },
             { href: "/mypage", label: "마이", icon: UserRound },
           ].map(({ href, label, icon: Icon }) => (
@@ -121,7 +120,7 @@ export function SiteHeader() {
           <Link href="/categories?sort=new" style={{ color: COLORS.text }}>
             신상품
           </Link>
-          <Link href="/categories?kind=DROP" className="ml-auto" style={{ color: COLORS.deep }}>
+          <Link href="/drop" style={{ color: COLORS.deep }}>
             드롭
           </Link>
         </div>

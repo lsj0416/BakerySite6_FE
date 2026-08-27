@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { BackHeader } from "@/components/back-header";
+import { ProductImageUpload } from "@/components/product-image-upload";
 import { COLORS } from "@/lib/theme";
 import * as dropApi from "@/lib/api/drop";
 import * as sellerApi from "@/lib/api/seller";
@@ -17,6 +18,9 @@ const inputStyle = {
   color: COLORS.text,
   border: `1px solid ${COLORS.border}`,
 };
+
+/** 드롭 시작 시간은 매장 운영 시간대 안에서만 오픈할 수 있도록 이 값들로 제한한다. */
+const DROP_START_HOURS = [9, 11, 13, 15, 17] as const;
 
 export default function NewDropPage() {
   const router = useRouter();
@@ -48,12 +52,18 @@ export default function NewDropPage() {
     price: "",
     totalQuantity: "",
     limitQuantity: "",
-    dropPeriodStart: "",
     dropPeriodEnd: "",
   });
+  const [dropStartDate, setDropStartDate] = useState("");
+  const [dropStartHour, setDropStartHour] = useState<number | null>(null);
+  const [isImageUploading, setIsImageUploading] = useState(false);
   const [pickupStart, setPickupStart] = useState("");
   const [pickupEnd, setPickupEnd] = useState("");
   const pickupDates = expandDateRange(pickupStart, pickupEnd);
+  const dropPeriodStart =
+    dropStartDate && dropStartHour !== null
+      ? `${dropStartDate}T${String(dropStartHour).padStart(2, "0")}:00`
+      : "";
 
   const registerMutation = useMutation({
     mutationFn: () =>
@@ -62,7 +72,7 @@ export default function NewDropPage() {
         description: form.description,
         imageUrl: form.imageUrl,
         pickUpAvailableDates: pickupDates,
-        dropStart: `${form.dropPeriodStart}:00`,
+        dropStart: `${dropPeriodStart}:00`,
         dropEnd: `${form.dropPeriodEnd}:00`,
         limitQuantity: Number(form.limitQuantity),
         price: Number(form.price),
@@ -76,6 +86,7 @@ export default function NewDropPage() {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!form.imageUrl || isImageUploading || !dropPeriodStart) return;
     registerMutation.mutate();
   }
 
@@ -101,13 +112,9 @@ export default function NewDropPage() {
           className={inputClass}
           style={inputStyle}
         />
-        <input
-          required
-          placeholder="이미지 URL"
-          value={form.imageUrl}
-          onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-          className={inputClass}
-          style={inputStyle}
+        <ProductImageUpload
+          onUploaded={(imageUrl) => setForm((f) => ({ ...f, imageUrl }))}
+          onUploadingChange={setIsImageUploading}
         />
 
         <div className="flex gap-2">
@@ -145,16 +152,38 @@ export default function NewDropPage() {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs" style={{ color: COLORS.muted }}>
-            드롭 시작 일시
+            드롭 시작 날짜
           </label>
           <input
             required
-            type="datetime-local"
-            value={form.dropPeriodStart}
-            onChange={(e) => setForm((f) => ({ ...f, dropPeriodStart: e.target.value }))}
+            type="date"
+            value={dropStartDate}
+            onChange={(e) => setDropStartDate(e.target.value)}
             className={inputClass}
             style={inputStyle}
           />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs" style={{ color: COLORS.muted }}>
+            드롭 시작 시간
+          </label>
+          <div className="flex gap-2">
+            {DROP_START_HOURS.map((hour) => (
+              <button
+                key={hour}
+                type="button"
+                onClick={() => setDropStartHour(hour)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+                style={{
+                  background: dropStartHour === hour ? COLORS.accent : COLORS.surface,
+                  color: dropStartHour === hour ? COLORS.bg : COLORS.text,
+                  border: `1px solid ${COLORS.border}`,
+                }}
+              >
+                {hour}시
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs" style={{ color: COLORS.muted }}>
@@ -212,11 +241,17 @@ export default function NewDropPage() {
 
         <button
           type="submit"
-          disabled={registerMutation.isPending || pickupDates.length === 0}
+          disabled={
+            registerMutation.isPending ||
+            isImageUploading ||
+            !form.imageUrl ||
+            !dropPeriodStart ||
+            pickupDates.length === 0
+          }
           className="w-full py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
           style={{ background: COLORS.accent, color: COLORS.bg }}
         >
-          {registerMutation.isPending ? "등록 중..." : "드롭 등록"}
+          {registerMutation.isPending ? "등록 중..." : isImageUploading ? "이미지 업로드 중..." : "드롭 등록"}
         </button>
       </form>
     </div>

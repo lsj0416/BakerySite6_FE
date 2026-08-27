@@ -56,7 +56,7 @@ OpenBake(베이커리 "드롭"(한정판매) 쇼핑몰) 모바일 웹 프론트�
 - **주문 목록 필터는 `PAID`/`CANCELED`만 허용**(`OR008`) — `PENDING`은 별도 화면(`GET /orders/pending`), `FAILED`/`EXPIRED`는 "주문한 적 없는 것"으로 취급해 목록에 노출 안 함. 목록 응답(`OrderSummaryResponse`)은 항목이 여럿이면 대표 상품명 + 나머지 건수로 줄인 요약이지 배열이 아님(상세 조회만 `items[]` 배열).
 - **드롭 구매는 카트를 거치지 않음**: `lock-start`(재고 선점) 이후 곧바로 `POST /orders {dropId}`로 주문서를 만듦. 드롭 전용 카트 API(`POST /api/v1/cart` 등)는 백엔드에서 삭제됐음(404) — `lib/api/cart.ts`는 이제 일반상품 다중 아이템 장바구니(`/api/v1/cart/items`)만 다룸.
 - **비회원(게스트) 접근 가능 API는 제한적**: `GET /products/{id}`, `GET /drops/{id}/info`(상세), `GET /products/product-list`, `GET /products/autocomplete`, `GET /drops/upcoming`(목록·검색·자동완성)는 optional-auth로 열려 있어 Authorization 헤더 없이도 200이 옴. **추천(`GET /recommendations`)은 개인화가 본질이라 의도적으로 로그인 필수로 남겨둠** — 게스트 화면에서는 이 쿼리 자체를 `enabled: isAuthenticated`로 막아야 함(안 그러면 401 요청이 그대로 나감).
-- 백엔드에 wishlist(찜) API 자체가 없음 — `lib/wishlist/wishlist-storage.ts`로 `localStorage`에만 저장(의도된 설계, 기기 간 동기화 안 됨).
+- 백엔드에 wishlist(찜) API 자체가 없어서, `localStorage` 전용으로 구현했던 찜 기능은 (2026-08-25) 완전히 제거함 — 헤더/탭바 아이콘, `/wishlist` 페이지, 드롭 상세 하트 버튼 전부 삭제됨.
 - 백엔드에 드롭 참여 이력(`GET /drops/history`) API도 없음.
 - 클라이언트발 `Idempotency-Key` HTTP 헤더 계약 자체가 없음(전부 서버가 자체 생성하는 바디 필드) — 프론트가 이 헤더를 만들어 보낼 필요/방법이 없음.
 - 주문 취소 시 드롭 마감 이후에도 취소가 성공하는 등 일부 백엔드 검증 공백이 남아있음 — `docs/order-api.md`의 ⚠️ 표시 문단 참고.

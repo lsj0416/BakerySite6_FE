@@ -11,7 +11,7 @@ import * as dropApi from "@/lib/api/drop";
 import * as paymentApi from "@/lib/api/payment";
 import * as productApi from "@/lib/api/product";
 import * as recommendationApi from "@/lib/api/recommendation";
-import { CATEGORIES, dropToCatalogProduct, productToCatalogProduct, recommendationItemToCatalogProduct } from "@/lib/catalog";
+import { dropToCatalogProduct, productToCatalogProduct, recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { msToHMS, pad } from "@/lib/format";
 import { COLORS } from "@/lib/theme";
 import { toDropStatus } from "@/lib/types";
@@ -98,24 +98,6 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className="mx-auto max-w-[1200px] px-4 py-12 md:px-6 md:py-16">
-        <div className="mb-7 flex items-end justify-between">
-          <div>
-            <p className="text-xs font-bold tracking-[0.18em]" style={{ color: COLORS.accent }}>CATEGORY</p>
-            <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>어떤 빵을 찾으세요?</h2>
-          </div>
-          <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>전체보기 <ArrowRight size={15} /></Link>
-        </div>
-        <div className="grid grid-cols-3 gap-2 md:grid-cols-6 md:gap-3">
-          {CATEGORIES.map((category) => (
-            <Link key={category.slug} href={`/categories/${category.slug}`} className="group rounded-2xl border bg-white px-2 py-5 text-center transition-transform hover:-translate-y-1 md:px-4 md:py-7" style={{ borderColor: COLORS.border }}>
-              <span className="text-3xl md:text-4xl" aria-hidden="true">{category.emoji}</span>
-              <p className="mt-3 text-xs font-bold md:text-sm" style={{ color: COLORS.text }}>{category.shortLabel}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-
       <section className="border-y py-12 md:py-16" style={{ background: COLORS.surface, borderColor: COLORS.border }}>
         <div className="mx-auto max-w-[1200px] px-4 md:px-6">
           <div className="mb-7 flex items-end justify-between">
@@ -137,6 +119,26 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4">{recommendedProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div>
           ) : (
             <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.bg, color: COLORS.muted }}>추천할 수 있는 상품을 준비하고 있어요.</p>
+          )}
+        </div>
+      </section>
+
+      <section id="drops" className="scroll-mt-36 bg-[#3B2416] py-12 text-white md:py-16">
+        <div className="mx-auto max-w-[1200px] px-4 md:px-6">
+          <div className="mb-7 flex items-end justify-between">
+            <div>
+              <p className="text-xs font-bold tracking-[0.18em] text-[#DDBE9B]">LIMITED DROP</p>
+              <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl">놓치면 다시 만나기 어려워요</h2>
+              <p className="mt-2 text-sm text-white/65">수량과 시간이 한정된 베이커리 드롭</p>
+            </div>
+            <Link href="/drop" className="hidden items-center gap-1 text-sm font-bold text-[#E7C9A8] md:flex">전체 드롭 <ArrowRight size={15} /></Link>
+          </div>
+          {products.length > 0 ? (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4 [&_p]:!text-white [&_article_p:last-child]:!text-white/60">
+              {products.slice(0, 8).map((product) => <ProductCard key={product.id} product={product} />)}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/15 bg-white/5 px-5 py-14 text-center text-sm text-white/60">예정된 드롭이 없습니다.</div>
           )}
         </div>
       </section>
@@ -169,26 +171,6 @@ export default function HomePage() {
         ) : (
           <p className="rounded-2xl py-14 text-center text-sm" style={{ background: COLORS.surface, color: COLORS.muted }}>등록된 상시 판매 상품이 없습니다.</p>
         )}
-      </section>
-
-      <section id="drops" className="scroll-mt-36 bg-[#3B2416] py-12 text-white md:py-16">
-        <div className="mx-auto max-w-[1200px] px-4 md:px-6">
-          <div className="mb-7 flex items-end justify-between">
-            <div>
-              <p className="text-xs font-bold tracking-[0.18em] text-[#DDBE9B]">LIMITED DROP</p>
-              <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl">놓치면 다시 만나기 어려워요</h2>
-              <p className="mt-2 text-sm text-white/65">수량과 시간이 한정된 베이커리 드롭</p>
-            </div>
-            <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold text-[#E7C9A8] md:flex">전체 드롭 <ArrowRight size={15} /></Link>
-          </div>
-          {products.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 md:gap-x-5 lg:grid-cols-4 [&_p]:!text-white [&_article_p:last-child]:!text-white/60">
-              {products.slice(0, 8).map((product) => <ProductCard key={product.id} product={product} />)}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-white/15 bg-white/5 px-5 py-14 text-center text-sm text-white/60">예정된 드롭이 없습니다.</div>
-          )}
-        </div>
       </section>
 
       <section className="mx-auto max-w-[1200px] px-4 py-12 md:px-6 md:py-16">

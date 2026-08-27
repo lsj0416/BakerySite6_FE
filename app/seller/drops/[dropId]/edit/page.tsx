@@ -4,8 +4,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { BackHeader } from "@/components/back-header";
+import { ProductImageUpload } from "@/components/product-image-upload";
 import { COLORS } from "@/lib/theme";
 import * as dropApi from "@/lib/api/drop";
+import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { expandDateRange } from "@/lib/format";
 
@@ -15,6 +17,9 @@ const inputStyle = {
   color: COLORS.text,
   border: `1px solid ${COLORS.border}`,
 };
+
+/** 드롭 시작 시간은 매장 운영 시간대 안에서만 오픈할 수 있도록 이 값들로 제한한다. */
+const DROP_START_HOURS = [9, 11, 13, 15, 17] as const;
 
 /** "2026-08-01T10:00:00" -> "2026-08-01T10:00" (datetime-local input이 받는 포맷) */
 function toDatetimeLocal(iso: string): string {
@@ -41,13 +46,19 @@ export default function EditDropPage() {
     price: "",
     totalQuantity: "",
     limitQuantity: "",
-    dropStart: "",
     dropEnd: "",
   });
+  const [dropStartDate, setDropStartDate] = useState("");
+  const [dropStartHour, setDropStartHour] = useState<number | null>(null);
+  const [isImageUploading, setIsImageUploading] = useState(false);
   const [pickupStart, setPickupStart] = useState("");
   const [pickupEnd, setPickupEnd] = useState("");
   const pickupDates = expandDateRange(pickupStart, pickupEnd);
   const [initialized, setInitialized] = useState(false);
+  const dropPeriodStart =
+    dropStartDate && dropStartHour !== null
+      ? `${dropStartDate}T${String(dropStartHour).padStart(2, "0")}:00`
+      : "";
 
   useEffect(() => {
     function sync() {
@@ -59,9 +70,16 @@ export default function EditDropPage() {
           price: String(drop.price),
           totalQuantity: String(drop.totalQuantity),
           limitQuantity: String(drop.limitQuantity),
-          dropStart: toDatetimeLocal(drop.dropStart),
           dropEnd: toDatetimeLocal(drop.dropEnd),
         });
+        const [existingStartDate, existingStartTime] = toDatetimeLocal(drop.dropStart).split("T");
+        setDropStartDate(existingStartDate ?? "");
+        const existingStartHour = Number(existingStartTime?.slice(0, 2));
+        setDropStartHour(
+          DROP_START_HOURS.includes(existingStartHour as (typeof DROP_START_HOURS)[number])
+            ? existingStartHour
+            : null,
+        );
         // 기존 데이터가 예전 방식(개별 날짜, 사이 날짜가 빠질 수 있음)으로 등록됐을 수 있어
         // 최솟값~최댓값을 범위로 되돌린다 — 저장 시 그 사이 모든 날짜로 다시 채워진다.
         const existing = [...drop.pickUpAvailableDates].sort();
@@ -80,7 +98,7 @@ export default function EditDropPage() {
         description: form.description,
         imageUrl: form.imageUrl,
         pickUpAvailableDates: pickupDates,
-        dropStart: `${form.dropStart}:00`,
+        dropStart: `${dropPeriodStart}:00`,
         dropEnd: `${form.dropEnd}:00`,
         limitQuantity: Number(form.limitQuantity),
         price: Number(form.price),
@@ -94,6 +112,7 @@ export default function EditDropPage() {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!form.imageUrl || isImageUploading || !dropPeriodStart) return;
     updateMutation.mutate();
   }
 
@@ -131,13 +150,10 @@ export default function EditDropPage() {
             className={inputClass}
             style={inputStyle}
           />
-          <input
-            required
-            placeholder="이미지 URL"
-            value={form.imageUrl}
-            onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-            className={inputClass}
-            style={inputStyle}
+          <ProductImageUpload
+            existingPreviewUrl={productImageUrl(form.imageUrl)}
+            onUploaded={(imageUrl) => setForm((f) => ({ ...f, imageUrl }))}
+            onUploadingChange={setIsImageUploading}
           />
 
           <div className="flex gap-2">
@@ -178,16 +194,38 @@ export default function EditDropPage() {
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs" style={{ color: COLORS.muted }}>
-              드롭 시작 일시
+              드롭 시작 날짜
             </label>
             <input
               required
-              type="datetime-local"
-              value={form.dropStart}
-              onChange={(e) => setForm((f) => ({ ...f, dropStart: e.target.value }))}
+              type="date"
+              value={dropStartDate}
+              onChange={(e) => setDropStartDate(e.target.value)}
               className={inputClass}
               style={inputStyle}
             />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs" style={{ color: COLORS.muted }}>
+              드롭 시작 시간
+            </label>
+            <div className="flex gap-2">
+              {DROP_START_HOURS.map((hour) => (
+                <button
+                  key={hour}
+                  type="button"
+                  onClick={() => setDropStartHour(hour)}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+                  style={{
+                    background: dropStartHour === hour ? COLORS.accent : COLORS.surface,
+                    color: dropStartHour === hour ? COLORS.bg : COLORS.text,
+                    border: `1px solid ${COLORS.border}`,
+                  }}
+                >
+                  {hour}시
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs" style={{ color: COLORS.muted }}>
@@ -245,11 +283,17 @@ export default function EditDropPage() {
 
           <button
             type="submit"
-            disabled={updateMutation.isPending || pickupDates.length === 0}
+            disabled={
+              updateMutation.isPending ||
+              isImageUploading ||
+              !form.imageUrl ||
+              !dropPeriodStart ||
+              pickupDates.length === 0
+            }
             className="w-full py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
             style={{ background: COLORS.accent, color: COLORS.bg }}
           >
-            {updateMutation.isPending ? "저장 중..." : "저장"}
+            {updateMutation.isPending ? "저장 중..." : isImageUploading ? "이미지 업로드 중..." : "저장"}
           </button>
         </form>
       )}
