@@ -297,18 +297,23 @@ export function ProductDetailView({
             ) : (
               !pickupDate && (
                 <p className="text-xs mb-2 text-center" style={{ color: COLORS.muted }}>
-                  픽업 날짜를 선택해주세요
+                  바로구매는 픽업 날짜를 선택해주세요. 장바구니는 지금 담고 나중에 골라도 됩니다.
                 </p>
               )
             )}
             <div className="flex gap-2">
               <button
                 onClick={handleAddToCart}
+                /**
+                 * 담기는 픽업일이 없어도 된다 — cart API의 pickUpDate가 선택 항목이고
+                 * (lib/api/cart.ts), 서버도 미선택 항목을 PICKUP_DATE_UNSELECTED로
+                 * 표시만 한 채 장바구니에 넣어준다. 픽업일은 장바구니 화면에서 고른다.
+                 * 픽업일 필수는 바로구매(주문 생성)에만 해당한다.
+                 */
                 disabled={
                   addToCartMutation.isPending ||
                   buyNowMutation.isPending ||
-                  sortedPickupDates.length === 0 ||
-                  !pickupDate
+                  sortedPickupDates.length === 0
                 }
                 className="flex-1 py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
                 style={{ border: `1.5px solid ${COLORS.border}`, color: COLORS.text }}

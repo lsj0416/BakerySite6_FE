@@ -121,15 +121,16 @@ export function getGeneralProductList(params: GetGeneralProductListParams = {}) 
   if (params.sort) query.set("sort", params.sort);
   query.set("page", String(params.page ?? 0));
   query.set("size", String(params.size ?? 20));
-  return apiRequest<ProductPagedModel>(`/api/v1/products/product-list?${query}`);
+  return apiRequest<ProductPagedModel>(`/api/v1/products/product-list?${query}`, { auth: "optional" });
 }
 
 /**
- * GET /api/v1/products/{productId} — 상세. 인증 없이도 조회 가능하다고 문서화돼 있지만
- * 이 앱은 (shop) 레이아웃 가드로 어차피 로그인 사용자만 접근하므로 apiRequest 기본값 그대로 사용.
+ * GET /api/v1/products/{productId} — 상세. optional-auth라 게스트도 200을 받는다.
+ * (shop) 레이아웃이 /products/* 를 비로그인에게 열어두므로 auth: "optional"이어야 한다
+ * — 기본값(인증 필수)이면 게스트 상세 조회가 요청도 못 나가고 실패한다.
  */
 export function getGeneralProduct(productId: number) {
-  return apiRequest<ProductInfoResponse>(`/api/v1/products/${productId}`);
+  return apiRequest<ProductInfoResponse>(`/api/v1/products/${productId}`, { auth: "optional" });
 }
 
 const PRODUCT_IMAGE_BASE_URL =

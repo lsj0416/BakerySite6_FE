@@ -28,7 +28,7 @@ export interface DropInfo {
  * 버그가 났었음). 그래서 여기선 unwrapped 옵션을 쓰지 않는다.
  */
 export function getDropInfo(dropId: number) {
-  return apiRequest<DropInfo>(`/api/v1/drops/${dropId}/info`);
+  return apiRequest<DropInfo>(`/api/v1/drops/${dropId}/info`, { auth: "optional" });
 }
 
 /**
@@ -38,6 +38,7 @@ export function getDropInfo(dropId: number) {
 export function getUpcomingDrops(days?: number) {
   return apiRequest<DropProductInfoResponse[]>(
     `/api/v1/drops/upcoming${days !== undefined ? `?days=${days}` : ""}`,
+    { auth: "optional" },
   );
 }
 

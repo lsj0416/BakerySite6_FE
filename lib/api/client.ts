@@ -65,18 +65,38 @@ async function reissueAccessToken(): Promise<string> {
   return reissuePromise;
 }
 
+/**
+ * 게이트웨이(JwtAuthenticationGlobalFilter)가 직접 내는 인증 실패 코드들. 각 서비스의
+ * 도메인 에러코드(ME002 등)와 체계가 달라서, 이 코드들을 모르면 아래 401 복구 분기
+ * 어디에도 안 걸려 재발급 시도조차 없이 그대로 실패한다(2026-08-27 장바구니 주문·
+ * 판매자 사업자 인증에서 실제로 발생).
+ */
+const GATEWAY_RETRYABLE_CODES = new Set(["TOKEN_EXPIRED"]);
+const GATEWAY_SESSION_INVALID_CODES = new Set([
+  "AUTHENTICATION_REQUIRED",
+  "TOKEN_INVALID",
+  "TOKEN_CLAIMS_INVALID",
+  "TOKEN_REVOKED",
+]);
+
 interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
-  auth?: boolean;
+  /**
+   * true(기본) — 인증 필수. 토큰이 없으면 익명으로 보내지 않고 즉시 실패한다.
+   * "optional" — 게스트도 볼 수 있는 조회 API. 토큰이 있으면 싣고, 없으면 익명으로 보낸다.
+   * false — 인증 개념이 없는 API(로그인/회원가입/재발급).
+   */
+  auth?: boolean | "optional";
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, auth = true } = options;
+  const attachToken = auth !== false;
 
   const send = (accessToken?: string) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    if (attachToken && accessToken) headers.Authorization = `Bearer ${accessToken}`;
     return fetch(`${BASE_URL}${path}`, {
       method,
       headers,
@@ -84,7 +104,18 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     });
   };
 
-  const stored = auth ? getTokens() : null;
+  const stored = attachToken ? getTokens() : null;
+
+  /**
+   * ⚠️ 인증이 필수인 API에 토큰이 없으면 요청 자체를 보내지 않는다. 예전엔 Authorization
+   * 헤더만 조용히 빼고 그대로 보냈는데, 게이트웨이가 Authorization이 아예 없는 요청을
+   * AUTHENTICATION_REQUIRED로 막으면서 화면엔 원인을 알 수 없는 실패만 남았다
+   * (2026-08-27 장바구니 "주문하기", 판매자 입점 "사업자 인증"에서 실제 발생).
+   * 로그인 화면으로 보내는 건 각 레이아웃의 인증 가드 책임이라 여기선 예외만 던진다.
+   */
+  if (auth === true && !stored) {
+    throw new ApiException("ME002", "로그인이 필요합니다. 다시 로그인해주세요.");
+  }
 
   /**
    * ⚠️ 만료된 accessToken을 그대로 보내면 안 됨: SecurityConfig의 필터 체인에
@@ -96,7 +127,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
    * 보내기 전에 갱신해서 애초에 그 요청 자체가 안 나가게 만든다.
    */
   let accessToken = stored?.accessToken;
-  if (auth && stored && isTokenExpired(stored.accessToken)) {
+  if (attachToken && stored && isTokenExpired(stored.accessToken)) {
     try {
       accessToken = await reissueAccessToken();
     } catch {
@@ -108,14 +139,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   let res = await send(accessToken);
 
-  if (auth && (res.status === 401 || res.status === 403) && stored) {
+  if (attachToken && (res.status === 401 || res.status === 403) && stored) {
     const cloned = (await res
       .clone()
       .json()
       .catch(() => null)) as ApiResponse<unknown> | null;
     const code = cloned && !cloned.success ? cloned.error.code : undefined;
 
-    if (code === "ME002") {
+    if (code === "ME002" || (code !== undefined && GATEWAY_RETRYABLE_CODES.has(code))) {
       try {
         const newAccessToken = await reissueAccessToken();
         res = await send(newAccessToken);
@@ -124,6 +155,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         redirectToLogin();
         throw new ApiException("ME002", "유효하지 않은 인증 토큰입니다.");
       }
+    } else if (code !== undefined && GATEWAY_SESSION_INVALID_CODES.has(code)) {
+      /**
+       * 토큰을 실어 보냈는데도 게이트웨이가 "없다/못 쓴다"고 답한 경우다. 재발급으로
+       * 회복될 성질이 아니므로(TOKEN_EXPIRED는 위에서 이미 갈라냄) 세션을 정리하고
+       * 로그인으로 보낸다.
+       */
+      clearTokens();
+      redirectToLogin();
+      throw new ApiException(code, "로그인이 만료되었습니다. 다시 로그인해주세요.");
     } else if (cloned === null) {
       /**
        * 토큰이 없거나 만료/위조된 요청은 컨트롤러까지 도달하지 못하고 Spring Security
