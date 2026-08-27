@@ -13,7 +13,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
 import { productImageUrl } from "@/lib/api/product";
 import * as recommendationApi from "@/lib/api/recommendation";
-import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
+import { createOrContinuePendingOrder, getPendingOrder } from "@/lib/api/order";
 import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
@@ -68,25 +68,16 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
       if (!effectivePickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
       await dropApi.lockStart(dropId, qty);
 
-      try {
-        const created = await createPendingOrder({ dropId, pickUpDate: effectivePickupDate });
-        return created.orderId;
-      } catch (err) {
-        // OR006(DUPLICATE_REQUEST) = 이미 진행 중인 주문이 있어 새로 못 만듦. 자동으로
-        // 결제·취소하지 않고, GET /orders/pending으로 실제로 같은 드롭 주문인지만 확인한다.
-        if (!(err instanceof ApiException) || err.code !== "OR006") throw err;
-
-        const pending = await getPendingOrder();
-        const sameDropItem =
-          pending?.salesType === "DROP" ? pending.items.find((item) => item.dropId === dropId) : undefined;
-
-        if (pending && sameDropItem) return pending.orderId;
-
-        throw new ApiException(
-          "OR006",
-          "다른 진행 중인 주문이 있어 이 드롭을 새로 주문할 수 없습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
-        );
-      }
+      // 진행 중 주문이 있어 막히면, 그게 "같은 드롭"의 주문일 때만 이어간다.
+      return createOrContinuePendingOrder(
+        { dropId, pickUpDate: effectivePickupDate },
+        {
+          accept: (pending) =>
+            pending.salesType === "DROP" && pending.items.some((item) => item.dropId === dropId),
+          conflictMessage:
+            "다른 진행 중인 주문이 있어 이 드롭을 새로 주문할 수 없습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
+        },
+      );
     },
     onSuccess: (orderId) => {
       router.push(`/order?orderId=${orderId}`);

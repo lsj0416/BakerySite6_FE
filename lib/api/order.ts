@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { ApiException } from "@/lib/api/types";
 
 export type OrderLifecycleState = "PENDING" | "PAID" | "CANCELED" | "FAILED" | "EXPIRED";
 
@@ -69,6 +70,52 @@ export function createPendingOrder(body: OrderCreateRequest) {
     method: "POST",
     body,
   });
+}
+
+/**
+ * "진행 중 주문이 이미 있다"를 뜻하는 응답 코드들.
+ *
+ * 정상 경로는 OR006(DUPLICATE_REQUEST)이다. 그런데 이 제약의 최종 방어선은 DB의
+ * `uk_orders_active_member` 유니크 인덱스이고, 백엔드는 그 위반 메시지에 컬럼명이
+ * 들어있는지로만 OR006인지 판별한다(OrderRepositoryAdapter). 판별에 실패하면
+ * GlobalExceptionHandler의 최후 폴백인 C004(RESOURCE_CONFLICT, 409)가 그대로 나온다.
+ *
+ * 두 코드는 사용자에게 완전히 같은 상황이다 — 이미 있는 주문으로 이어가면 된다.
+ * C004를 실패로 끝내면 사용자는 진행 중 주문에 도달할 방법이 없어 주문 자체가
+ * 영구히 막힌다(2026-08-27 배포 서버에서 실제로 발생).
+ */
+const PENDING_ORDER_CONFLICT_CODES = new Set(["OR006", "C004"]);
+
+export function isPendingOrderConflict(err: unknown): boolean {
+  return err instanceof ApiException && PENDING_ORDER_CONFLICT_CODES.has(err.code);
+}
+
+/**
+ * 주문서를 만들되, 이미 진행 중인 주문 때문에 막히면 그 주문으로 이어간다.
+ *
+ * `accept`로 "이어가도 되는 주문인지"를 호출부가 판단한다(드롭은 같은 드롭의 주문일
+ * 때만 이어가야 한다). 넘기지 않으면 진행 중 주문을 그대로 받아들인다.
+ * 자동으로 결제하거나 취소하지 않는다 — 화면 이동만 한다.
+ */
+export async function createOrContinuePendingOrder(
+  body: OrderCreateRequest,
+  options: { accept?: (pending: OrderDetailResponse) => boolean; conflictMessage?: string } = {},
+): Promise<number> {
+  try {
+    const created = await createPendingOrder(body);
+    return created.orderId;
+  } catch (err) {
+    if (!isPendingOrderConflict(err)) throw err;
+
+    const pending = await getPendingOrder();
+    if (pending && (options.accept?.(pending) ?? true)) return pending.orderId;
+
+    throw new ApiException(
+      "OR006",
+      options.conflictMessage ??
+        "이미 진행 중인 주문이 있습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
+    );
+  }
 }
 
 export interface OrderPayRequest {

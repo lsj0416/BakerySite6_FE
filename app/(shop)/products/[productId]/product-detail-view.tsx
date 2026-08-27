@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import * as cartApi from "@/lib/api/cart";
 import * as productApi from "@/lib/api/product";
 import { productImageUrl, PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
-import { createPendingOrder, getPendingOrder } from "@/lib/api/order";
+import { createOrContinuePendingOrder } from "@/lib/api/order";
 import * as recommendationApi from "@/lib/api/recommendation";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { ApiException } from "@/lib/api/types";
@@ -48,18 +48,7 @@ export function ProductDetailView({
   const buyNowMutation = useMutation({
     mutationFn: async (): Promise<number> => {
       if (!pickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
-      try {
-        const created = await createPendingOrder({ productId, quantity: qty, pickUpDate: pickupDate });
-        return created.orderId;
-      } catch (err) {
-        if (!(err instanceof ApiException) || err.code !== "OR006") throw err;
-        const pending = await getPendingOrder();
-        if (pending) return pending.orderId;
-        throw new ApiException(
-          "OR006",
-          "이미 진행 중인 주문이 있습니다. 주문 내역에서 기존 주문을 먼저 확인해주세요.",
-        );
-      }
+      return createOrContinuePendingOrder({ productId, quantity: qty, pickUpDate: pickupDate });
     },
     onSuccess: (orderId) => {
       router.push(`/order?orderId=${orderId}`);

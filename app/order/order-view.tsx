@@ -269,6 +269,12 @@ export function OrderView() {
   // 막는다(서버는 stale 응답만 걸러줄 뿐 동시 요청 자체는 안 막으므로). 주문서 만료는
   // 결제만 막는다 — 만료됐어도 서버가 5분 배치를 돌기 전까지는 취소로 즉시 반납할 수 있다.
   const bothBlocked = payMutation.isPending || cancelMutation.isPending || effectiveProcessingMarker !== null;
+
+  /**
+   * 예치금이 결제 금액에 못 미치는 상태. 예전엔 결제를 눌러 PAYMENT_FAILED를 받은
+   * 뒤에야 충전 버튼이 나왔는데, 잔액이 이미 화면에 있으니 미리 알려주는 편이 낫다.
+   */
+  const insufficientBalance = balance !== null && balance < order.totalAmount;
   const payBlocked = bothBlocked || expired || reservationUnknown;
   const cancelBlocked = bothBlocked;
 
@@ -344,6 +350,16 @@ export function OrderView() {
                 {balance.toLocaleString()}원
               </span>
             </div>
+            {insufficientBalance && (
+              <div className="flex justify-between py-1" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                <span className="text-sm" style={{ color: COLORS.danger }}>
+                  부족한 금액
+                </span>
+                <span className="text-sm font-bold" style={{ color: COLORS.danger }}>
+                  {(order.totalAmount - balance).toLocaleString()}원
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -393,19 +409,18 @@ export function OrderView() {
           </button>
         ) : (
           <>
-            {payOutcome === "PAYMENT_FAILED" && (
-              <button
-                onClick={() => {
-                  const returnTo = `/order?orderId=${orderId}`;
-                  router.push(`/wallet/charge?returnTo=${encodeURIComponent(returnTo)}`);
-                }}
-                disabled={bothBlocked}
-                className="w-full py-3 rounded-lg text-sm font-semibold disabled:opacity-60"
-                style={{ border: `1px solid ${COLORS.border}`, color: COLORS.text }}
-              >
-                충전하러 가기
-              </button>
-            )}
+            {/* 잔액과 무관하게 항상 노출한다 — 결제 전에 미리 충전하러 갈 수 있어야 한다. */}
+            <button
+              onClick={() => {
+                const returnTo = `/order?orderId=${orderId}`;
+                router.push(`/wallet/charge?returnTo=${encodeURIComponent(returnTo)}`);
+              }}
+              disabled={bothBlocked}
+              className="w-full py-3 rounded-lg text-sm font-semibold disabled:opacity-60"
+              style={{ border: `1px solid ${COLORS.border}`, color: COLORS.text }}
+            >
+              예치금 충전하기
+            </button>
             {reservationUnknown && (
               <button
                 onClick={() => refreshMutation.mutate()}
