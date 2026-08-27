@@ -8,175 +8,9 @@
 
 ## 미해결 (로컬 임시 수정만 함, 백엔드 레포 미반영)
 
-### 1. `GET /drops/{id}/info`, `GET /drops/mine` — 500 (LazyInitializationException)
+### [해결됨으로 이동] `GET /drops/{id}/info`, `GET /drops/mine` — 500 (LazyInitializationException) 외 드롭 도메인 4건
 
-- **발견일:** 2026-07-28
-- **관련 도메인:** drop (`docs/drop-api.md`)
-- **증상:** 두 엔드포인트 모두 항상 500(`C500`, "서버 오류가 발생했습니다")을 반환. 재현율 100%.
-- **재현:**
-  ```bash
-  curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/drops/{dropId}/info
-  curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/drops/mine
-  ```
-- **서버 로그:**
-  ```
-  org.springframework.http.converter.HttpMessageNotWritableException: Could not write JSON:
-  Cannot lazily initialize collection of role 'com.openbake.drop.domain.Drop.pickUpAvailableDate'
-  with key '1' (no session)
-  ...
-  Caused by: org.hibernate.LazyInitializationException: Cannot lazily initialize collection of role
-  'com.openbake.drop.domain.Drop.pickUpAvailableDate' with key '1' (no session)
-  ```
-- **원인:** `Drop.pickUpAvailableDate`는 LAZY 컬렉션인데, 두 매핑 코드 모두 이 컬렉션을 한 번도 접근(touch)하지 않고 프록시 참조 그대로 DTO에 담아 넘깁니다. 실제 초기화(=DB 조회)는 Jackson이 응답을 직렬화하는 시점에 처음 일어나는데, 그때는 이미 트랜잭션/세션이 끝난 뒤라 실패합니다.
-  - `DropService.getDropProductInfo`(`/info`가 사용) — `@Transactional` 자체가 없어서 세션 자체가 없는 상태로 지연 컬렉션을 참조.
-  - `DropService.getMyDrops`(`/mine`이 사용) — `@Transactional(readOnly = true)`는 있지만, `DropProductInfoResponse.of()` 안에서 `drop.getPickUpAvailableDate()`를 그냥 필드 대입만 하고 `.size()`/순회 등으로 실제 초기화를 유발하지 않아서 트랜잭션 안에서도 여전히 "미초기화" 상태로 DTO에 담김.
-  - → **`@Transactional` 유무와 별개로, "지연 컬렉션을 세션 안에서 실제로 강제 로딩하지 않고 그대로 DTO에 흘려보내는" 게 공통 원인.**
-- **적용한 수정 (로컬 전용):**
-
-  `DropService.java`:
-  ```java
-  // getDropProductInfo에 @Transactional 추가 + 컬렉션 복사
-  @Transactional(readOnly = true)
-  public DropProductInfo getDropProductInfo(Long dropId) {
-      Drop findDrop = findDrop(dropId);
-      DropInventory dropInventory = dropInventoryRepository.findByDropId(dropId);
-      return DropProductInfo.of(..., new HashSet<>(findDrop.getPickUpAvailableDate()));
-  }
-  ```
-
-  `DropProductInfoResponse.java` (`getMyDrops`/`updateDropProduct`/`registerDropProduct`가 공유하는 정적 팩토리라 여기 한 곳만 고치면 전부 적용됨):
-  ```java
-  public static DropProductInfoResponse of(Drop drop, DropInventory inventory) {
-      return new DropProductInfoResponse(
-              drop.getDropProduct().getName(),
-              drop.getDropProduct().getDescription(),
-              drop.getDropProduct().getImageUrl(),
-              new HashSet<>(drop.getPickUpAvailableDate()), // ← 참조 대신 복사
-              ...
-      );
-  }
-  ```
-
-### 2. `POST /drops/{id}/confirm-entry` — 500 (동일한 LazyInitializationException)
-
-- **발견일:** 2026-07-28 (1번 수정 후 브라우저로 대기열→입장확정 플로우 재검증하다 발견)
-- **증상:** 위와 동일한 스택트레이스, 이번엔 `ConfirmEntryResponse["pickupDates"]` 직렬화 중 발생.
-- **원인:** `DropEnterService.confirmEntry`는 `@Transactional`이 있지만, `ConfirmEntryResponse.of(..., findDrop.getPickUpAvailableDate())` 호출도 1번과 똑같이 참조만 넘겨서 같은 문제가 재현됨.
-- **적용한 수정 (로컬 전용):**
-
-  `ConfirmEntryResponse.java`:
-  ```java
-  public static ConfirmEntryResponse of(DropProduct dropProduct, int limitQuantity, int remainQuantity, Set<LocalDate> pickupDates){
-      return new ConfirmEntryResponse(
-              dropProduct.getName(), dropProduct.getDescription(),
-              dropProduct.getImageUrl(), dropProduct.getPrice(), limitQuantity, remainQuantity,
-              new HashSet<>(pickupDates) // ← 참조 대신 복사
-      );
-  }
-  ```
-- **⚠️ 참고:** `Drop.pickUpAvailableDate`를 참조하는 다른 DTO/서비스 메서드가 더 있다면 같은 패턴을 의심해볼 것 — 증상은 항상 "이유 없이 500" 또는 (프론트에서 결과를 못 받았을 때) "화면이 조용히 빈 화면으로 보임".
-
-### 3. `drop_entries` 테이블 CHECK 제약이 `EntryStatus` enum과 어긋남 (DB 스키마 드리프트)
-
-- **발견일:** 2026-07-28 (2번 수정 후 confirm-entry 재시도하다 발견)
-- **증상:** `POST /drops/{id}/confirm-entry`가 500. 로그에 SQL 예외.
-- **서버 로그:**
-  ```
-  org.postgresql.util.PSQLException: ERROR: new row for relation "drop_entries" violates check constraint "drop_entries_entry_status_check"
-  Detail: Failing row contains (1, 1, ENTERED, 2026-07-28 20:58:31.775768, 21).
-  ```
-- **원인:** DB의 `drop_entries_entry_status_check` 제약이 `['ENTRY', 'RESERVED', 'COMPLETED']`만 허용하는데, 실제 `EntryStatus` 자바 enum(`drop/domain/EntryStatus.java`)은 `ENTERED, RESERVED, COMPLETED, FAILED, CANCELLED`입니다(철자도 `ENTRY`→`ENTERED`로 다름, `FAILED`/`CANCELLED`도 누락). `ddl-auto: update`는 기존 컬럼의 CHECK 제약을 자동으로 갱신하지 않는 게 원인으로 보입니다 — enum이 예전엔 `ENTRY` 3개짜리였다가 이후 `ENTERED`/`FAILED`/`CANCELLED` 포함하는 5개짜리로 바뀌었는데, 로컬 DB는 최초 생성 시점 스키마 그대로 남아있던 것으로 추정.
-- **적용한 수정 (로컬 DB 직접 ALTER, 마이그레이션 파일은 찾지 못함 — 있다면 그쪽도 확인 필요):**
-  ```sql
-  ALTER TABLE drop_entries DROP CONSTRAINT drop_entries_entry_status_check;
-  ALTER TABLE drop_entries ADD CONSTRAINT drop_entries_entry_status_check
-    CHECK (entry_status::text = ANY (ARRAY['ENTERED','RESERVED','COMPLETED','FAILED','CANCELLED']::text[]));
-  ```
-- **⚠️ 참고:** 이건 코드 버그가 아니라 로컬 DB에만 있는 스키마 드리프트라, 다른 팀원의 로컬 DB나 배포 환경에도 같은 문제가 있는지 확인이 필요합니다. Flyway/Liquibase 같은 정식 마이그레이션 도구가 없어서(`ddl-auto: update` 사용 중) 이런 드리프트가 재발할 수 있음 — 다른 enum 컬럼들(order_state, application_status 등)도 같은 문제가 있는지 점검해볼 가치가 있습니다.
-
-### 4. 인증 실패(만료/누락/위조 토큰) 응답에 CORS 헤더가 안 붙어서 브라우저가 응답을 통째로 차단함
-
-- **발견일:** 2026-07-29
-- **관련 도메인:** 공통 (member-auth, `SecurityConfig`) — 인증이 필요한 모든 엔드포인트에 해당하는 광범위한 문제
-- **증상:** 드롭 대기열 진입(`POST /drops/{id}/enter`) 등 인증이 필요한 API를, accessToken이 만료된 채로(로그인 후 30분 경과) 브라우저에서 호출하면 화면에 "대기열 진입에 실패했습니다" 같은 원인 불명의 fallback 문구만 뜬다. 브라우저 콘솔에는 다음 에러가 남는다:
-  ```
-  Access to fetch at 'http://localhost:8080/api/v1/drops/2/enter' from origin 'http://localhost:3000'
-  has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
-  ```
-  `curl`로 같은 요청을 보내면 CORS가 적용되지 않아 정상적으로 응답이 오므로(바디는 비어 있는 `403`, `Content-Length: 0`) 이 문제는 브라우저에서만 재현되고 curl 테스트만으로는 놓치기 쉽다.
-- **재현:**
-  ```bash
-  # 만료/위조 토큰으로 인증 필요 API 호출 → 바디 없는 403 (curl은 CORS를 안 지켜서 응답은 옴)
-  curl -i -X POST http://localhost:8080/api/v1/drops/2/enter \
-    -H "Authorization: Bearer invalid.token.value" -H "Content-Type: application/json" -d '{}'
-  # → HTTP/1.1 403, Content-Length: 0, Vary:Origin 헤더 없음
-
-  # 반면 유효한 토큰으로 호출하면 Vary: Origin 등 CORS 관련 헤더가 붙어서 내려옴 (비교용)
-  ```
-  실제 브라우저(Chromium)로 같은 시나리오를 재현하면 요청 자체가 `net::ERR_FAILED`로 실패하고 응답이 JS에 전달되지 않는다.
-- **원인:** CORS는 `WebConfig`(`WebMvcConfigurer.addCorsMappings`)에만 설정돼 있는데, 이건 Spring MVC의 `DispatcherServlet`까지 요청이 도달해야 적용되는 레벨이다. 반면 `SecurityConfig.filterChain()`은 `.cors(...)`를 전혀 호출하지 않는다. 그래서 JWT가 없거나 만료/위조된 요청은 `anyRequest().authenticated()`에 걸려 `DispatcherServlet`에 도달하기도 전에 Security 필터 체인(`ExceptionTranslationFilter`)에서 바로 거부되는데, 이 경로는 MVC의 CORS 설정을 거치지 않으므로 응답에 `Access-Control-Allow-Origin`이 붙지 않는다. 브라우저는 CORS 헤더 없는 cross-origin 응답을 스크립트에서 읽지 못하게 막아버리므로, 프론트 입장에선 응답 상태 코드나 바디를 전혀 볼 수 없는 순수 네트워크 에러(`fetch()` reject)로만 관측된다.
-  - 부가적으로, 설령 CORS를 통과하더라도 이 거부 응답은 `GlobalExceptionHandler`(Spring MVC `@RestControllerAdvice`)를 거치지 않으므로 앱 전역 규칙인 `{success:false, error:{code,message}}` envelope도 안 붙는다(바디가 아예 빔, `Content-Length: 0`) — `docs/*-api.md` 문서에 나온 에러 포맷 규칙에서 벗어나는 유일한 경로다.
-- **권장 수정 (로컬 코드 수정은 적용하지 않음 — 이 저장소는 백엔드 코드를 직접 건드리지 않는다는 원칙이라, 백엔드팀이 반영):**
-
-  `SecurityConfig.java`의 `filterChain()`에 `.cors(Customizer.withDefaults())`를 추가하고, `WebConfig`의 `addCorsMappings`와 동일한 origin/method/header 설정을 담은 `CorsConfigurationSource` 빈을 등록해야 한다(Spring Security의 `.cors()`는 `WebMvcConfigurer.addCorsMappings`를 자동으로 읽어오지 않고, 별도의 `CorsConfigurationSource` 빈이 필요함). 예:
-  ```java
-  http
-      .cors(Customizer.withDefaults())
-      .csrf(AbstractHttpConfigurer::disable)
-      ...
-
-  @Bean
-  public CorsConfigurationSource corsConfigurationSource() {
-      CorsConfiguration config = new CorsConfiguration();
-      config.setAllowedOrigins(List.of(
-          "https://bakery-site6-fe.vercel.app", "http://localhost:3000", "http://localhost:5173"));
-      config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-      config.setAllowedHeaders(List.of("*"));
-      UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-      source.registerCorsConfiguration("/api/**", config);
-      return source;
-  }
-  ```
-- **프론트 임시 우회(2026-07-29 적용, `lib/api/client.ts`):** accessToken을 실제로 보내기 전에 JWT의 `exp` claim을 클라이언트에서 미리 디코딩해 만료 여부를 확인하고, 만료됐으면 요청을 보내기 전에 `reissueAccessToken()`으로 먼저 갱신한다 — 이러면 만료된 토큰이 애초에 서버로 나가질 않으니 이 CORS 차단 경로 자체를 타지 않는다. 다만 이건 "자연스러운 만료"만 회피할 뿐, 서명이 위조됐거나 서버에서 블랙리스트된 토큰처럼 `exp`는 아직 안 지났지만 백엔드가 거부하는 경우는 여전히 이 버그의 영향을 받는다(그런 요청은 여전히 원인 불명의 fallback 에러로 보일 것) — 근본 수정은 위 백엔드 CORS 연동뿐이다.
-
-### 5. `POST /drops/{id}/lock-start` — `confirm-entry` 직후 호출하면 항상 `DR014`
-
-- **발견일:** 2026-07-30
-- **관련 도메인:** drop (`docs/drop-api.md` §9)
-- **증상:** 정상적인 구매 흐름(`enter` → `confirm-entry` → `lock-start`)을 그대로 따라가도 `lock-start`가 매번 예외 없이 `400 DR014`("재고를 선점할 수 있는 상태가 아닙니다")를 반환합니다. 재현율 100% — 레이스 컨디션이 아니라 결정적 버그이며, 로컬 백엔드와 배포 환경(`https://52.79.188.160.sslip.io`) 양쪽에서 동일하게 재현됩니다. 프론트(`app/(shop)/drops/[dropId]/drop-detail-view.tsx`)의 호출 순서·요청 바디(`quantity` 필드명 등)는 문서·컨트롤러와 정확히 일치하므로 프론트 원인이 아님을 확인했습니다.
-- **재현:**
-  ```bash
-  curl -X POST http://localhost:8080/api/v1/drops/{dropId}/enter \
-    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
-  # → status ACTIVE (또는 대기열 통과 후 rank 0)
-
-  curl -X POST http://localhost:8080/api/v1/drops/{dropId}/confirm-entry \
-    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
-  # → 200, 입장 확정 성공
-
-  curl -X POST http://localhost:8080/api/v1/drops/{dropId}/lock-start \
-    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"quantity":1}'
-  # → 400 DR014 "재고를 선점할 수 있는 상태가 아닙니다" (confirm-entry 직후 곧바로 호출해도 항상 실패)
-  ```
-- **원인:** `DropEnterService.confirmEntry`(`DropEnterService.java:73-98`)가 입장 확정 처리의 마지막 단계로 `queueManager.removeActiveUser(dropId, memberId)`를 호출합니다(97번 줄 주석: "입장 처리 완료 후 대기열 권한 제거"). 이건 `InMemoryQueueManager`의 `activeMembers` 맵에서 해당 회원을 즉시 제거합니다.
-
-  그런데 `lock-start`가 호출하는 `DropLockService.checkEntryStatus`(`DropLockService.java:72-82`)는 다음 두 조건을 모두 요구합니다:
-  ```java
-  public void checkEntryStatus(Long dropId, Long memberId) {
-      DropEntry dropEntry = dropEntryRepository.findByDropIdAndMemberId(dropId, memberId)
-              .orElseThrow(() -> new BusinessException(ErrorCode.NEVER_ENTERED));
-
-      if (dropEntry.getEntryStatus() != EntryStatus.ENTERED) {
-          throw new BusinessException(ErrorCode.NOT_ENTERED_STATUS); // DR014
-      }
-      if (!queueManager.isActive(dropId, memberId)) {
-          throw new BusinessException(ErrorCode.NOT_ENTERED_STATUS); // DR014 ← 항상 여기서 걸림
-      }
-  }
-  ```
-  `confirmEntry`가 끝나는 순간 `activeMembers`에서 이미 제거됐기 때문에, 그 직후 `lock-start`를 호출하면 `queueManager.isActive()`가 항상 `false`를 반환합니다. 즉 `EntryStatus.ENTERED` 체크는 통과하지만 `isActive()` 체크에서 반드시 막히도록 설계돼 있어서, **입장 확정에 성공한 사용자는 그 이후 어떤 시점에 `lock-start`를 호출하든 재고를 선점할 방법이 없습니다.**
-- **권장 수정 (로컬 코드 수정은 적용하지 않음 — 진단만 하고 백엔드팀 확인 요청):** `checkEntryStatus`에서 `queueManager.isActive()` 체크를 제거하는 것을 제안합니다. `EntryStatus.ENTERED` 체크만으로 "대기열을 통과해 입장이 확정된 상태"는 이미 충분히 검증되며, `confirmEntry`가 입장 확정 시 active 큐 권한을 회수하는 것이 의도된 설계라면(주석상 그렇게 보임) 그 직후의 `isActive()` 재확인은 이 설계와 정면으로 모순됩니다. `isActive()` 체크를 유지해야 하는 다른 이유(예: 만료된 active 세션을 통한 뒤늦은 lock-start 방지)가 있다면, `confirmEntry`가 active 권한을 지우는 시점을 `lock-start` 성공 이후로 옮기는 방향도 대안이 될 수 있습니다.
-- **영향:** M5(드롭 상세 → 대기열 → 입장확정 → 재고선점 → 장바구니 → 주문) 플로우 전체가 재고선점 단계에서 100% 막혀서, 이후 단계(장바구니 생성, 픽업일 선택, 주문/결제)를 브라우저 e2e로 검증할 수 없는 상태입니다.
+> 2026-08-27 브라우저 E2E로 재검증한 결과, 아래 옛 #1/#2/#3/#5(LazyInitializationException 2건, `drop_entries` CHECK 제약, `lock-start` DR014)가 모두 이미 해결돼 있었습니다(드롭 도메인이 대기열 제거 등으로 그 사이 크게 리팩터링됨). 상세 내용은 "해결됨" 절의 "드롭 도메인 — 2026-07-28~30에 보고된 4건" 항목으로 옮겼습니다. 같은 재검증 과정에서 **`dropId`가 응답에서 통째로 빠져있는 새로운 회귀**를 발견해 수정했고, 그 내용도 "해결됨" 절에 있습니다.
 
 ---
 
@@ -210,99 +44,28 @@
   즉 서비스 간 호출은 어느 쪽으로도 성공할 수 없습니다. `RecommendationService.calculate()`가 `interactions`가 비어 있을 때(신규 회원) 타는 `latest()` 경로, 그리고 개인화 추천을 검증하는 `validateCandidates()` 경로 둘 다 이 내부 API를 거치므로, **어떤 회원·어떤 행동 이력 상태에서도 추천이 항상 503**입니다. `RecommendationExceptionHandler`가 예외를 로그로 남기지 않는 것도 별개 문제로 같이 고쳐야 진단이 쉬워집니다.
 - **권장 수정 (로컬 코드 수정은 적용하지 않음 — 진단만 함):** `HeaderAuthenticationFilter.shouldNotFilter()`에 `AiServicePaths.matches(path)` / `CoreServicePaths.matches(path)`(둘 다 이미 `common`에 있음)를 조기 예외 처리로 추가해서, 이미 `ServiceAuthenticationFilter`가 인증을 책임지는 경로는 `HeaderAuthenticationFilter`가 아예 건드리지 않게 하는 것을 제안합니다. 더 근본적으로는, 서로 다른 신뢰 주체(게이트웨이 사용자 신원 vs 서비스 간 토큰)를 다루는 두 필터가 같은 `SecurityContext`를 순서대로 겹쳐 쓰는 구조 자체가 이런 종류의 버그를 계속 만들어낼 여지가 있어 보입니다.
 - **영향:** 추천 기능(`GET /api/v1/recommendations`) 100% 장애, 하이브리드 검색의 의미 검색 절반도 100% 장애(키워드 검색만 동작). 프론트(이 레포)에서 두 기능 다 API 계약대로 정상 구현·503 열화 처리까지 확인했으나, 백엔드가 항상 실패를 반환하므로 실제 값 확인은 이 버그가 고쳐진 뒤에만 가능합니다.
+- **2026-08-27 재확인 시도:** 이번 라운드에서도 재현을 시도했으나, 이 로컬 환경엔 애초에 **ai-service 자체가 기동돼 있지 않습니다**(포트 8083 connection refused, 로컬 프로세스·도커 컨테이너 둘 다 없음 — root/member/payment/api-gateway 4개만 `run-all.sh` 기준으로 떠 있음). 그 상태로 `GET /api/v1/recommendations`를 호출하면 게이트웨이 로그에 `Connection refused: localhost/127.0.0.1:8083` 500이 남는데, 이건 위에서 설명한 "인증 필터 충돌로 401/403"과는 **다른 증상**(서비스가 아예 안 떠 있어서 나는 순수 연결 실패)이라 이 항목이 실제로 고쳐졌는지 여부는 이번 라운드로는 확인도 반증도 못 했습니다. ai-service를 별도로 띄운 뒤 재검증이 필요합니다.
 
 ---
 
-### 7. `GET /api/v1/products/product-list` — ES `status` 필드를 analyzed text로 term 쿼리해서 결과가 항상 0건
-
-- **발견일:** 2026-08-21
-- **관련 도메인:** product 검색 (`src/main/java/com/openbake/product/infrastructure/elasticsearch/ProductSearchAdapter.java`)
-- **증상:** 상품이 정상적으로 등록되고 Elasticsearch `products` 인덱스에도 색인되는데(`match_all`로 조회하면 나옴), `GET /api/v1/products/product-list`는 키워드/카테고리 유무와 무관하게 **항상 빈 목록**을 반환. 재현율 100% — 자동완성(`autocomplete`)도 동일한 필드를 참조해서 같은 문제가 있을 것으로 보임(별도 확인은 안 함).
-- **재현:**
-  ```bash
-  # 상품 2개 등록 후 인덱스엔 정상적으로 들어감
-  curl -s "http://localhost:9200/products/_search?size=10" | jq '.hits.total'
-  # → {"value": 4, "relation": "eq"}  (전부 status: "SELLING")
-
-  # 그런데 실제 백엔드가 쓰는 필터 조건으로 쿼리하면 0건
-  curl -s -X POST "http://localhost:9200/products/_search" -H "Content-Type: application/json" -d '{
-    "query": {"bool": {"filter": [{"term": {"status": "SELLING"}}]}}
-  }' | jq '.hits.total'
-  # → {"value": 0, "relation": "eq"}
-
-  # status.keyword로 바꾸면 정상적으로 4건 매치
-  curl -s -X POST "http://localhost:9200/products/_search" -H "Content-Type: application/json" -d '{
-    "query": {"bool": {"filter": [{"term": {"status.keyword": "SELLING"}}]}}
-  }' | jq '.hits.total'
-  # → {"value": 4, "relation": "eq"}
-  ```
-- **원인:** `ProductDocument`의 `status` 필드에 별도 매핑 애너테이션이 없어서 Elasticsearch가 동적 매핑으로 `status`를 `text`(한글 분석기 대상은 아니지만 기본 standard analyzer로 토큰화됨) + `status.keyword`(원문 그대로 저장되는 서브필드) 두 가지로 만듭니다. `ProductSearchAdapter.buildSearchQuery()`와 `autocomplete()`가 `.field("status")`로 `term` 쿼리를 날리는데, `term` 쿼리는 분석을 거치지 않고 저장된 토큰과 정확히 일치해야 매치됩니다. `text` 필드는 인덱싱 시 소문자화 등 분석을 거치므로 저장된 토큰이 `SELLING`이 아니라 `selling`(또는 그 이상으로 변형된 토큰)이 되어, 대문자 원문 `"SELLING"`으로 날린 `term` 쿼리와 절대 일치하지 않습니다. `status.keyword` 서브필드를 써야 원문 그대로 매치됩니다.
-- **권장 수정 (로컬 코드 수정은 적용하지 않음 — 진단만 함):** `ProductSearchAdapter`에서 `status` term 쿼리가 걸린 두 곳(`buildSearchQuery`의 판매중 필터, `autocomplete`의 판매중 필터) 모두 필드명을 `"status.keyword"`로 바꾸는 것을 제안합니다. 근본적으로는 `ProductDocument`에 `@Field(type = FieldType.Keyword)`로 `status`를 명시적으로 매핑해서 애초에 동적 매핑에 의존하지 않게 하는 편이 이런 클래스의 버그를 구조적으로 막습니다(그러면 기존 인덱스는 재색인 필요).
-- **영향:** 매우 심각 — 검색어/카테고리 필터 유무와 무관하게 `GET /api/v1/products/product-list`가 **항상 빈 목록**을 반환하므로, 홈 화면 "상시 판매" 섹션·카테고리 페이지·검색 페이지 전부 일반상품이 하나도 안 보입니다. 프론트 카탈로그 동기화 작업(`docs/ai/product-catalog-sync-plan.md`) 및 추천/검색 연동 작업(`docs/ai/recommendation-search-integration-plan.md`) 둘 다 이 버그 때문에 실제 데이터로는 검증이 불가능한 상태였습니다(빈 상태 UI만 확인 가능). (2026-08-26 브라우저 E2E로 재확인: 현재는 `product-list`가 정상적으로 데이터를 반환함 — 그 사이 수정된 것으로 보이나 이 항목은 "해결됨"으로 옮기기 전 백엔드팀 확인 필요.)
-
-### 8. 한 번이라도 장바구니를 완전히 비운 회원은 이후 영구히 `POST /api/v1/cart/items`가 `409 CA001`
-
-- **발견일:** 2026-08-26 (브라우저 E2E, Flow C 일반상품 장바구니 검증 중)
-- **관련 도메인:** cart (`docs/cart-api.md`, 단 이 문서 자체가 구식 설계를 기술하고 있어 최신화 필요 — 아래 참고)
-- **증상:** 특정 회원 계정(`E2E_MEMBER_EMAIL`)에서 상품 상세 → "장바구니" 버튼을 누르면 매번 `409 CA001 (CART_ALREADY_EXISTS, "이미 장바구니에 담긴 상품이 있습니다.")`가 남. 그런데 같은 시점에 `GET /api/v1/cart`는 항상 `{cartId: null, items: [], totalAmount: 0}` — 즉 화면·API 응답상으로는 장바구니가 완전히 비어 있는데 담기만 항상 거부됨. 재현율 100%(연속 3회 재시도 모두 동일), 새로고침/재로그인과 무관하게 지속.
-- **재현:**
-  ```bash
-  # 로그인 후 access token으로
-  curl -s http://localhost:8089/api/v1/cart -H "Authorization: Bearer $TOKEN"
-  # → {"success":true,"data":{"cartId":null,"items":[],"totalAmount":0}}
-
-  curl -s -X POST http://localhost:8089/api/v1/cart/items \
-    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-    -d '{"productId":15,"quantity":1,"pickUpDate":"2026-08-27"}'
-  # → 409 {"success":false,"error":{"code":"CA001","message":"이미 장바구니에 담긴 상품이 있습니다."}}
-  ```
-- **원인(코드 확인, 확정은 아님):** `CartRepositoryAdapter.save()`(`src/main/java/com/openbake/cart/infrastructure/CartRepositoryAdapter.java:20-30`)는 `carts.member_id` UNIQUE 제약 위반을 잡아 `CART_ALREADY_EXISTS`로 변환한다 — 주석상 의도는 "장바구니가 없던 회원이 담기를 더블클릭해 두 요청이 함께 `findByMemberId` 조회를 통과한 경우"의 동시성 방어다. 하지만 이번 재현은 순차 요청(더블클릭 아님)이고 `findByMemberId`는 매번 빈 값을 반환하는데 `save()`는 매번 UNIQUE 위반에 부딪힌다 — 이는 `carts` 테이블에 이 `member_id`로 된 행이 실제로 남아 있는데 `CartJpaRepository.findByMemberId`(파생 쿼리, `CartJpaRepository.java`)가 그 행을 찾지 못하고 있다는 뜻이다. 항목을 마지막 하나까지 지웠을 때 `Cart` 행 자체는 삭제되지 않고 0건짜리 행으로 남는 경로가 있는지, 혹은 다른 원인으로 고아 행이 생겼는지는 DB를 직접 조회하지 않고는 확정할 수 없어 백엔드팀 확인이 필요하다(이 세션은 DB에 직접 접근하지 않았음).
-- **영향:** 심각 — 한 번 이 상태에 빠진 회원은 **UI 조작만으로는 영구히** 일반상품을 장바구니에 담을 수 없다(장바구니를 거치지 않는 바로구매는 영향 없음, `POST /orders {productId,quantity,pickUpDate}`는 cart 테이블을 안 건드림). 이번 세션에서 사용한 `E2E_MEMBER_EMAIL` 계정이 정확히 이 상태라 Flow C(일반상품 장바구니) 브라우저 검증을 카트 담기 단계에서 진행하지 못했다.
-- **프론트 대응:** 하지 않음 — FE에서 우회 불가능한 서버 상태 버그로 판단해 코드 변경 없이 이 문서에만 기록. `app/(shop)/cart/page.tsx`의 `checkoutMutation` 에러 처리(`checkoutMutation.isError` 블록)는 이미 `ApiException.message`를 그대로 보여주므로, 이 에러가 나도 사용자에게 "이미 장바구니에 담긴 상품이 있습니다"라는 실제 서버 메시지가 그대로 뜨긴 한다 — 다만 이 메시지 자체가 실제 화면 상태(빈 장바구니)와 모순돼 사용자가 이해할 수 없는 상태다.
-
-### 9. 같은 계정에서 `activeMemberId` "진행 중 주문 슬롯"도 동일한 패턴으로 고아 상태 — 신규 주문 생성이 영구히 `OR006`
-
-- **발견일:** 2026-08-26 (브라우저 E2E, Flow D 바로구매 검증 중 — #8과 같은 `E2E_MEMBER_EMAIL` 계정에서 연달아 발견)
-- **관련 도메인:** order (`src/main/java/com/openbake/order/application/OrderService.java`, `src/main/java/com/openbake/order/domain/Order.java`)
-- **증상:** `POST /api/v1/orders`(바로구매, `{productId,quantity,pickUpDate}`)가 항상 `409 OR006 (DUPLICATE_REQUEST, "중복된 요청입니다.")`. 그런데 서버 코드 주석 자체가 "OR006이 나면 프론트가 `GET /orders/pending`으로 기존 주문을 보여준다"고 명시하는데도(`OrderService.java:134-135`), 같은 계정으로 `GET /api/v1/orders/pending`을 호출하면 매번 `{"success":true}`뿐이고 `data` 필드가 없음(주문 없음). 재현율 100%(연속 7회, ~5분 간격으로 재시도해도 동일 — 아래 "自가 치유 시도" 참고).
-- **재현:**
-  ```bash
-  curl -s -X POST http://localhost:8089/api/v1/orders \
-    -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-    -d '{"productId":15,"quantity":1,"pickUpDate":"2026-08-27"}'
-  # → 409 {"success":false,"error":{"code":"OR006","message":"중복된 요청입니다."}}
-
-  curl -s http://localhost:8089/api/v1/orders/pending -H "Authorization: Bearer $TOKEN"
-  # → {"success":true}   (data 없음 — "진행 중 주문 없음")
-  ```
-- **원인(코드 확인, 확정은 아님):** `OrderService.guardActiveOrder`는 `orderRepository.findByActiveMemberIdForUpdate(memberId)`(JPQL `where o.activeMemberId = :memberId`, `PESSIMISTIC_WRITE` 락)로 진행 중 주문을 찾아 있으면 `OR006`을 던진다. `OrderService.getPendingOrder`는 `orderRepository.findByActiveMemberId(memberId)`(같은 조건, 락만 없음)를 쓴다 — **두 쿼리 조건이 사실상 동일**해서 한쪽이 행을 찾으면 다른 쪽도 찾아야 정상인데 실제로는 갈린다. `Order.java`의 `activeMemberId`는 생성 시 회원 ID로 채워지고(`createPending`) `markPaid`/`markFailed`/`markExpired`/`cancel` 전부 `releaseActiveSlot()`으로 정상적으로 비운다 — 즉 도메인 모델의 정상 전이 경로 자체는 슬롯 반납을 빠뜨리지 않는다. 다만 그 반납이 "누수"날 수 있다는 걸 코드가 이미 알고 있다: `Order.releaseLeakedSlot()`(터미널 상태인데 슬롯이 안 비워진 행을 강제로 비움)과 이를 5분마다 돌리는 `OrderExpirationScheduler.releaseLeakedSlots()`가 별도로 존재한다. **이 배치를 신뢰하고 5분 간격으로 7회(총 ~5분+) 재시도했지만 전혀 해소되지 않았다** — 두 가지 가능성이 남는다: (a) 문제의 주문이 실제로는 터미널 상태가 아니라 여전히 `PENDING`인데(그래서 `releaseLeakedSlot()`의 `!orderState.isTerminal()` 가드에 걸려 배치가 건드리지 않음) `findByActiveMemberId`(non-lock)만 그 행을 못 찾는 별개의 조회 버그이거나, (b) 로컬 `root` 프로세스에서 `@EnableScheduling`/`OrderExpirationScheduler`가 이번 세션 기준으로 아예 안 돌고 있는 것. DB를 직접 조회(`select * from orders where active_member_id = ?` 또는 `member_id = ? order by order_id desc`)하지 않고는 어느 쪽인지, 그리고 애초에 이 슬롯이 왜/언제 새게 됐는지 확정할 수 없다.
-- **영향:** 심각 — 이 상태에 빠진 회원은 카트 경유든 바로구매든 드롭 우선권이 없는 한(`route != DROP`) **신규 주문을 영구히 생성할 수 없다**. `E2E_MEMBER_EMAIL` 계정이 #8(카트)에 이어 이 상태이기도 해서, 이번 세션은 Flow C·D(일반상품 장바구니, 바로구매) 둘 다 이 계정으로는 브라우저 검증을 마치지 못했다. 드롭 구매(route == DROP)는 영향 없음 — `guardActiveOrder`가 드롭에는 우선권을 줘서 기존 주문을 자동 만료시키고 진행한다.
-- **프론트 대응:** 하지 않음 — FE의 OR006 처리(`createPendingOrder` 실패 시 `getPendingOrder()`로 이어가기, `app/(shop)/cart/page.tsx`·`product-detail-view.tsx`·`drop-detail-view.tsx` 공통 패턴)는 서버가 "OR006이면 `/orders/pending`에 그 주문이 있다"고 보장한다는 전제로 짜여 있고 그 전제 자체가 이번 계정에서 깨져 있다 — FE가 짐작으로 다르게 처리하면(예: OR006을 다른 메시지로 덮어쓰기) 문제를 감추기만 하므로 코드는 그대로 두고 여기에만 기록한다.
-
 ### 10. `GlobalExceptionHandler`가 모든 `DataIntegrityViolationException`을 주문 도메인 코드 `OR006`으로 응답 — 무관한 도메인 오류가 전부 "중복된 요청입니다"로 나옴
 
-- **발견일:** 2026-08-26 (브라우저 E2E, Flow G 판매자 상품 삭제 검증 중 — `DELETE /api/v1/products/{id}`가 이유 없이 `409 OR006`)
-- **관련 도메인:** 공통 예외 처리(`common/src/main/java/com/openbake/common/exception/GlobalExceptionHandler.java:68-71`), 이번엔 product 도메인에서 촉발됨
-- **증상:** 판매자가 자신이 등록한 일반상품(E2E 테스트로 만든 `productId=16`)을 삭제하면 매번 `409 {"code":"OR006","message":"중복된 요청입니다."}`. `ProductService.deleteProduct`/`deleteGeneralProduct` 소스를 확인했지만 이 경로 어디에도 `OR006`/`DUPLICATE_REQUEST`를 직접 던지는 코드가 없다 — `product.markDeleted()` 다음 `productChangedOutboxWriter.deleted(productId)`가 있을 뿐이다. 재현율 100%(연속 3회).
-- **재현:**
-  ```bash
-  curl -s -X DELETE http://localhost:8089/api/v1/products/16 -H "Authorization: Bearer $TOKEN"
-  # → 409 {"success":false,"error":{"code":"OR006","message":"중복된 요청입니다."}}
-  ```
-- **원인(코드 확인):** `GlobalExceptionHandler.handleDataIntegrityViolation`(68-71행)이 **모든** `DataIntegrityViolationException`(어느 테이블/도메인에서 나든 상관없이 앱 전역)을 `ErrorCode.DUPLICATE_REQUEST`(`OR006`, "중복된 요청입니다")로 고정 매핑한다. 이 코드는 이름·메시지 모두 order 도메인 전용으로 지어졌는데(`OrderService.guardActiveOrder`가 의도적으로 쓰는 바로 그 코드, 위 #9 참고) 전역 예외 핸들러의 "모든 DB 제약 위반"의 기본값으로 재사용되고 있다 — product 삭제가 실제로 어떤 제약을 위반했는지(예: `productChangedOutboxWriter`가 쓰는 outbox 테이블의 UNIQUE 제약, 혹은 다른 FK)는 이 핸들러가 원래 예외를 삼키고 `OR006`만 반환해서 알 수 없다. DB 로그나 서버 stdout(`root.log`)을 직접 봐야 실제 제약 위반 원인이 확정된다 — 이 세션은 로그 파일에 접근하지 않았다.
-- **영향:** 심각 — (a) **분류 오류**: order와 무관한 도메인(이번엔 product)의 DB 제약 위반이 전부 "주문이 중복됐다"는 엉뚱한 메시지로 사용자에게 노출된다 — 디버깅뿐 아니라 실사용자 경험도 오도한다. (b) **기능 장애**: 이 세션이 Flow G 검증용으로 만든 E2E 테스트 상품(`productId=16`, 이름 `E2E-20260826060858--테스트상품`)이 이 버그 때문에 **삭제되지 않고 그대로 남아있음** — `docs/backend-bug-reports.md` 원칙대로 프론트/DB를 임의로 건드리지 않았으니, 이 항목이 해결되면 그때 `DELETE /api/v1/products/16`으로 정리하면 된다.
-- **프론트 대응:** 하지 않음 — `app/seller/dashboard/page.tsx`의 `productDeleteMutation` 에러 처리는 이미 `ApiException.message`를 그대로 보여주므로("중복된 요청입니다"), 서버가 틀린 메시지를 주면 FE도 그 틀린 메시지를 그대로 보여줄 수밖에 없다. 서버 쪽에서 원래 예외를 보존해 정확한 코드로 응답하도록 고치는 게 맞다고 판단해 FE 우회 없이 기록만 함.
-- **정리 미완료:** 위 이유로 `productId=16`(E2E 테스트 상품)이 판매자 계정(`E2E_SELLER_EMAIL`)에 그대로 남아있음 — 이번 세션이 삭제를 시도했으나 이 버그로 실패했다.
+- **발견일:** 2026-08-26 (브라우저 E2E, Flow G 판매자 상품 삭제 검증 중)
+- **관련 도메인:** 공통 예외 처리(`common/src/main/java/com/openbake/common/exception/GlobalExceptionHandler.java:68-73`)
+- **증상:** DB 제약 위반이면 그 원인이 어느 도메인이든(카트/주문/상품/그 외 무엇이든) 전부 `409 {"code":"OR006","message":"중복된 요청입니다."}`로 응답한다. `OR006`은 이름·메시지 모두 order 도메인 전용으로 지어진 코드인데, `handleDataIntegrityViolation`이 "도메인별 세부 코드를 붙이지 않는다"는 의도로 이걸 전역 기본값처럼 재사용하고 있다(핸들러 자체 주석에 이 의도가 명시돼 있음).
+- **재현(2026-08-26 당시):** 아래 "해결됨" 항목의 스키마 드리프트 3건이 전부 이 핸들러를 거쳐 `OR006`으로 나왔었다(카트 담기, 주문 생성, 상품 삭제). 그 3건은 근본 원인(스키마 드리프트)을 고쳐서 이제 이 핸들러를 안 타지만, **핸들러 자체의 "전부 OR006" 설계는 그대로 남아있다** — 카트/주문/상품 외 다른 도메인에서 새로운 DB 제약 위반이 생기면 똑같이 엉뚱한 "중복된 요청입니다" 메시지가 나갈 것이다.
+- **영향:** 중간 — 기능을 막지는 않지만(그 아래 실제 제약 위반이 없다면), DB 제약 위반이 실제로 발생했을 때 사용자에게 원인과 무관한 오해의 소지가 있는 메시지를 보여주고, 서버 로그 없이는 실제 원인 파악이 어렵다.
+- **프론트 대응:** 하지 않음 — FE는 `ApiException.message`를 그대로 보여줄 뿐이라 서버가 주는 메시지를 그대로 노출한다. 서버가 원래 예외의 제약 이름을 보존해 더 정확한 코드/메시지로 응답하도록 고치는 게 맞는 방향이라고 보지만, 이번 세션 범위(카트/주문/상품 생성·삭제 P0 차단 해소) 밖이라 별도 라운드로 미룸.
 
 ---
 
 ## 문서-실제 동작 불일치 (버그는 아니지만 `docs/drop-api.md` 수정 필요)
 
-### 4. `GET /drops/{id}/info`, `GET /drops/today/drop` 인증 요구사항
+### [해결됨] 4. `GET /drops/{id}/info`, `GET /drops/today/drop` 인증 요구사항
 
 - 문서: "인증 없이 누구나 조회 가능한 공개 API입니다."
-- 실제: 토큰 없이 호출하면 `403`. 토큰이 있어야 정상 동작.
-- 프론트는 이미 실제 동작에 맞춰 구현함(항상 토큰을 실어 보냄).
+- 실제(2026-07-28 당시): 토큰 없이 호출하면 `403`. 토큰이 있어야 정상 동작.
+- **2026-08-27 재확인:** 지금은 컨트롤러에 `@SecurityRequirements`가 붙어 있고, 실제로 토큰 없이 `GET /drops/{id}/info`를 호출해도 `200`이 옵니다(문서가 원래 맞았던 방향으로 백엔드가 바뀜). CLAUDE.md에도 이미 이 optional-auth 동작이 반영돼 있고 FE도 게스트 접근을 허용하는 쪽으로 구현돼 있어 더 이상 문서-실제 불일치가 아닙니다.
 
 ### 5. `GET /drops/{id}/info` 응답 래퍼 형태
 
@@ -356,3 +119,81 @@
   #   Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS 확인
   ```
 - **프론트 반영:** 별도 작업 불필요 — 프론트 코드는 CORS 우회 로직 없이 그냥 fetch만 하므로, 백엔드 수정만으로 `/admin/settlements` 지급 관리 탭이 브라우저에서 정상 동작함.
+
+### `carts`/`orders`/`products`/`cart_items` 스키마가 `ddl-auto: update`로 못 따라간 컬럼·제약 드리프트 — 계정과 무관하게 장바구니 담기·주문 생성·상품 삭제가 전부 실패
+
+- **발견일:** 2026-08-26(브라우저 E2E, Flow C/D/G) / **해결일:** 2026-08-26
+- **관련 도메인:** cart, order, product — 전부 스키마 드리프트가 근본 원인
+- **증상(당시 #8/#9/#10로 각각 기록):** `POST /api/v1/cart/items`가 항상 `409 CA001`("이미 장바구니에 담긴 상품이 있습니다"), `POST /api/v1/orders`가 항상 `409 OR006`("중복된 요청입니다"), `DELETE /api/v1/products/{id}`가 항상 `409 OR006`. 셋 다 특정 계정 문제로 처음 의심했으나(고아 행 이론), 재조사 결과 **계정과 무관하게 이 DB 인스턴스에서 100% 재현**되는 문제였다 — `carts` 테이블 전체 회원 기준 0행이었던 게 그 증거.
+- **원인(root 서비스 실시간 로그 + `docker exec openbake-postgres psql`로 직접 확인):** `ddl-auto: update`는 컬럼 삭제나 CHECK 제약 갱신을 절대 반영하지 않는데, 세 테이블 다 엔티티/enum이 리팩터링되면서 DB 쪽이 예전 상태로 남았다.
+  1. `carts.expires_at` — 드롭 전용 만료-카트 설계 시절 컬럼(`NOT NULL`). 현재 `Cart` 엔티티엔 이 필드가 없음(`git log -p`로 `5d7f552` 리팩터링 커밋에서 삭제된 것 확인). → `INSERT INTO carts`가 항상 `23502`.
+  2. `cart_items.drop_id`(`NOT NULL`, 엔티티에 없음)와 `cart_items`의 `cart_id` 단독 `UNIQUE` 제약(`uk4p7dd2p61wsdx9j35wp6sugqr`, "카트당 항목 1개"였던 시절의 잔재 — 지금 진짜 제약은 `uk_cart_product(cart_id, product_id)`뿐) — carts 레벨을 고친 뒤에야 드러남. → 카트 항목 담기가 항상 `23502`, 두 번째로 다른 상품을 담으면 이 UNIQUE 때문에도 막혔을 것.
+  3. `orders_order_state_check`가 `('PAID','CONFIRMED','CANCELED')`만 허용. 현재 `OrderState`는 `PENDING/PAID/CANCELED/FAILED/EXPIRED`(CONFIRMED 없음, 항목 단위로 이동). `V4__move_confirmation_to_order_items.sql`이 기존 CONFIRMED **데이터**는 PAID로 옮겼지만 **체크 제약 자체**는 안 고쳤다. → 모든 신규 주문(PENDING으로 시작)의 `INSERT`가 항상 `23514`.
+  4. `products_status_check`가 `('SELLING','SOLD_OUT')`만 허용. `ProductStatus`엔 `DELETED`가 있음. → `markDeleted()`(소프트 삭제)가 항상 `23514`.
+  5. (덤으로 같이 정리) `drop_entries_entry_status_check` — 위 §3(미해결 목록 §3, 2026-07-28 발견)에서 로컬 DB에 직접 ALTER만 하고 마이그레이션 파일로 남기지 않았던 것을 정식 반영.
+  - 네 건 다 `GlobalExceptionHandler.handleDataIntegrityViolation`이 실제 제약 이름을 삼키고 `OR006`으로 뭉뚱그려 응답해서(위 #10 참고) 원인 파악이 늦어졌다.
+- **수정 완료:** Flyway 마이그레이션 `V6__fix_carts_orders_products_schema_drift.sql`, `V7__fix_cart_items_schema_drift.sql` 추가(root 모듈). `carts.expires_at`/`cart_items.drop_id` 컬럼 DROP, `cart_items`의 잘못된 단독 UNIQUE 제약 DROP, `orders_order_state_check`/`products_status_check`/`drop_entries_entry_status_check` 재생성. 애플리케이션 코드는 한 줄도 안 건드림 — 코드는 원래 옳았고 DB만 틀렸음.
+- **검증:** root 재시작 시 Flyway가 자동 적용(`Successfully applied ... now at version v7`), 이후 실제 계정으로 `POST /cart/items` → `201`(cartId 15, cartItemId 3), `POST /orders` → `201 PENDING`(orderId 19, 이후 정상적으로 `EXPIRED`로 자동 전이됨 — `OrderExpirationScheduler` 정상 동작도 같이 확인됨), `DELETE /products/16` → `200`(#10에서 남아있던 E2E 테스트 상품도 이걸로 정리됨). `CartServiceTest`/`OrderServiceTest`/`CartControllerTest` 회귀 없음. **다만 두 항목은 세션 도중 테스트 계정 자격증명 파일이 삭제되어(사용자가 예정대로 정리) 완결하지 못함**: (a) 서로 다른 두 상품을 한 카트에 담는 멀티아이템 시나리오는 제약 정의(`uk_cart_product`만 남음)로는 확인했지만 실제 앱 흐름으로는 재현 못 함, (b) Playwright 브라우저를 통한 최종 화면 재검증은 못 함(API 레벨 검증만 완료). 새 테스트 계정이 있으면 재검증 권장.
+- **프론트 반영:** 불필요 — FE는 처음부터 옳은 요청을 보내고 있었음.
+- **참고:** 이 DB(`openbake-postgres`, 로컬)는 오래전부터 계속 살아있던 인스턴스라 이 드리프트가 누적됐다. 신선한 DB를 새로 만들면(`ddl-auto: update`가 현재 엔티티 기준으로 스키마를 만들므로) 이 문제 자체가 없다 — 그래서 그동안 CI/신규 환경에서는 발견되지 않았을 것. 운영 DB도 이 저장소만큼 오래됐다면 같은 드리프트가 있을 가능성이 높으니 배포 전 반드시 마이그레이션 적용 필요.
+
+### 드롭 도메인 — 2026-07-28~30에 보고된 4건(LazyInitializationException 2건, `drop_entries` CHECK 제약, `lock-start` DR014)이 전부 재확인됨
+
+- **발견일:** 2026-07-28~30 / **재확인일:** 2026-08-27
+- **관련 도메인:** drop
+- **경위:** 이번 라운드에서 `docs/backend-bug-reports.md`에 남아있던 미해결 항목들을 실제 유저 플로우(회원가입→판매자 승인→드롭 등록→입장→입장확정→재고선점→주문서 생성)를 브라우저로 직접 실행하며 재검증했습니다. 4건 모두 더 이상 재현되지 않았습니다.
+  - `GET /drops/{id}/info`, `GET /drops/mine` LazyInitializationException — 재현 안 됨(`200` 정상 응답). 현재 `DropInfoResult.of()`/`DropInfoResponse.of()`가 `pickUpAvailableDates`를 `new HashSet<>(...)`로 복사하고 있어 원래 보고된 원인(지연 컬렉션 참조를 그대로 DTO에 흘려보냄)이 이미 없음.
+  - `POST /drops/{id}/confirm-entry` LazyInitializationException — 재현 안 됨(브라우저로 실제 호출, `200`).
+  - `drop_entries` CHECK 제약 불일치 — 재현 안 됨. 위 스키마 드리프트 항목의 V6 마이그레이션이 이 제약을 이미 정식으로 재생성해뒀음(`\d drop_entries`로 `ENTERED/RESERVED/COMPLETED/FAILED/CANCELLED` 전부 허용하는 것 확인).
+  - `POST /drops/{id}/lock-start`가 `confirm-entry` 직후 항상 `DR014` — 재현 안 됨. 원래 원인이던 대기열(`InMemoryQueueManager`, `isActive()`) 자체가 그 사이 리팩터링으로 코드베이스에서 완전히 제거됐습니다(`DropEnterService.java`의 주석: "대기열이 있던 시절에는 진입 경로가 enterQueue -> confirmEntry 2단계였고 ... 대기열을 걷어내면서 입장 경로가 이 메서드 하나로 줄었다"). 즉 버그를 유발하던 메커니즘 자체가 사라졌습니다.
+- **검증(2026-08-27):** 신규 E2E 테스트 계정으로 드롭 등록 → 로그인 → 픽업일 선택 → `confirm-entry`(200) → `lock-start`(200) → `POST /orders`(201, PENDING) → `/order?orderId=` 결제 화면 진입까지 브라우저로 전 구간 성공.
+- **비고:** 이 재확인만으로는 코드 변경이 없으므로 별도 커밋 없음. 같은 재검증 과정에서 아래 새 회귀(`dropId` 누락)를 발견해 수정했습니다.
+
+### 신규 회귀: `GET /drops/upcoming`, `GET /drops/mine`, `GET /drops/{id}/info` 응답에 `dropId`가 통째로 빠져 있어 드롭 상세 링크가 전부 `/drops/undefined`로 깨짐
+
+- **발견일:** 2026-08-27(브라우저 E2E, 홈 화면 드롭 카드 클릭 검증 중) / **해결일:** 2026-08-27
+- **관련 도메인:** drop
+- **증상:** 홈 화면의 "오늘의 드롭"/드롭 목록 카드가 전부 `href="/drops/undefined"`로 렌더링됨(브라우저로 실제 확인). 판매자의 `/drops/mine`도 동일하게 `dropId`가 없어 FE의 수정/삭제(`updateDrop`/`deleteDrop`)가 애초에 어떤 드롭을 대상으로 할지 알 수 없는 상태였음.
+- **원인:** `DropInfoResult`(application DTO)와 `DropInfoResponse`(presentation DTO) 어디에도 `dropId` 필드가 없었습니다. `DropService.getDropInfo`/`getMyDrops`/`getUpcomingDrops`/`updateDropProduct`는 전부 `Drop` 엔티티(또는 그 PK)를 갖고 있으면서도 결과 DTO를 만들 때 그 PK를 담지 않고 있었고, `DropController`의 `/info`·`/mine`·`/upcoming` 세 엔드포인트가 모두 이 DTO를 그대로 반환하므로 세 응답 다 영향을 받았습니다. FE(`lib/api/drop.ts`)는 `DropProductInfoResponse`/`getUpcomingDrops`가 `dropId: number`를 반환한다고 가정하고 있었고(`lib/catalog.ts`가 `drop.dropId`로 상세 링크를 만듦), 백엔드 응답엔 그 필드가 아예 없어 `undefined`가 그대로 URL에 박혔습니다. FE 계약 문서/타입은 옳았고 백엔드 응답이 실제로 그 계약을 지키지 않고 있던 경우입니다.
+- **수정 완료(백엔드, 애플리케이션 코드):**
+  - `drop/application/dto/DropInfoResult.java`, `drop/presentation/dto/DropInfoResponse.java` — 두 record에 `Long dropId` 필드 추가.
+  - `drop/application/service/DropService.java` — `getDropInfo`/`getMyDrops`/`getUpcomingDrops`/`updateDropProduct` 4곳에서 이미 갖고 있던 `Drop` 엔티티의 `.getId()`를 `DropInfoResult.of(...)`에 실어 보내도록 수정. `registerDrop`은 `productPort.registerProduct(command)` 시점엔 아직 `Drop`이 DB에 저장되기 전이라 dropId를 모르므로(`null`로 채움), `dropRepository.save(drop)` 이후 IDENTITY로 발급된 실제 `drop.getId()`로 다시 채운 `DropInfoResult`를 반환하도록 변경.
+  - `product/infrastructure/ProductAdapter.java` — `registerProduct()`가 만드는 `DropInfoResult`는 `dropId=null`로 표시(위와 같은 이유).
+  - 마이그레이션 없음 — DB 스키마 변경이 아니라 서비스 계층의 DTO 매핑 누락이었습니다.
+- **테스트:** `DropServiceTest.registerDrop_Success`(dropId를 제외한 필드만 비교하도록 `usingRecursiveComparison().ignoringFields("dropId")`로 변경 — mock 저장소라 실제 IDENTITY 값은 재현 안 됨), `DropControllerTest.getUpcomingDrops`(`dropId` jsonPath 단언 추가)를 갱신. `:test --tests "com.openbake.drop.*" --tests "com.openbake.product.*"` 전체 통과(기존에 있던 `ProductSearchServiceTest` 6건 실패는 무관한 사전 존재 이슈 — 아래 별도 항목 참고).
+- **검증:** root 서비스 재시작 후 브라우저로 홈 화면 재방문 → 드롭 카드 링크가 `/drops/undefined`에서 실제 dropId(`/drops/15`)로 바뀐 것을 확인. `GET /drops/upcoming`/`GET /drops/mine` 응답에 `"dropId":15`가 포함되는 것도 curl로 재확인.
+- **프론트 반영:** 불필요 — FE는 처음부터 옳은 타입/사용 방식을 갖고 있었음.
+
+### 인증 실패(만료/누락/위조 토큰) 응답에 CORS 헤더가 안 붙는 문제 — 아키텍처 변경으로 해소됨
+
+- **발견일:** 2026-07-29 / **해결 확인일:** 2026-08-27
+- **관련 도메인:** 공통 인증 — API Gateway
+- **원래 증상/원인:** 각 서비스(root 등)의 `SecurityConfig.filterChain()`이 `.cors(...)`를 호출하지 않아, Security 필터 체인이 인증 실패를 거부할 때 CORS 헤더 없는 빈 바디 403/401이 내려가 브라우저가 응답을 통째로 막았음(원래 보고서 §4 참고).
+- **2026-08-27 재확인:** 지금은 아키텍처가 바뀌어 API Gateway가 JWT 검증을 중앙에서 담당합니다(CLAUDE.md: "게이트웨이가 JWT를 검증하고 주입"). 만료/위조/누락 토큰으로 게이트웨이 경유 요청을 보내면:
+  ```bash
+  curl -i -X POST "http://localhost:8089/api/v1/drops/15/enter" \
+    -H "Origin: http://localhost:3000" -H "Authorization: Bearer invalid.token.value" \
+    -H "Content-Type: application/json" -d '{}'
+  # → HTTP/1.1 401, Access-Control-Allow-Origin: http://localhost:3000 포함,
+  #   바디도 {"success":false,"error":{"code":"TOKEN_INVALID",...}} 정식 envelope
+  ```
+  CORS 헤더와 `{success,error}` envelope 둘 다 정상적으로 붙습니다. 원래 문제였던 "Security 필터 체인이 MVC의 CORS 설정을 안 거치고 빈 바디로 거부" 경로 자체가 게이트웨이 중앙집중 인증으로 바뀌면서 사라진 것으로 보입니다.
+- **프론트 반영:** 불필요 — `lib/api/client.ts`의 만료 토큰 사전 갱신 우회 로직은 계속 유지해도 무해하지만, 이 근본 문제 자체는 더 이상 발생하지 않습니다.
+
+### `GET /api/v1/products/product-list` — ES `status` term 쿼리 0건 문제, 해결 확정
+
+- **발견일:** 2026-08-21 / **해결 확인일:** 2026-08-27
+- **관련 도메인:** product 검색
+- **경위:** 2026-08-26 브라우저 E2E에서 이미 정상 동작하는 것으로 재확인됐지만("백엔드팀 확인 필요" 상태로 미해결 목록에 남아 있었음), 2026-08-27 재검증에서 키워드 있음/없음 두 경로 모두 실데이터를 정상 반환하는 것을 다시 확인해 최종적으로 "해결됨"으로 옮깁니다.
+  ```bash
+  curl -s "http://localhost:8089/api/v1/products/product-list?page=0&size=10"
+  # → success:true, content에 실제 상품 포함
+
+  curl -s "http://localhost:8089/api/v1/products/product-list?keyword=쿠키&page=0&size=10"
+  # → success:true, totalElements:1 (일치하는 상품만 반환 — 빈 배열 아님)
+  ```
+- **프론트 반영:** 불필요.
+
+### 참고: `ProductSearchServiceTest` 6건 실패는 이번 작업과 무관한 기존 문제
+
+- 이번 라운드에 돌린 `:test --tests "com.openbake.drop.*" --tests "com.openbake.product.*"`에서 `ProductSearchServiceTest`의 6개 테스트가 `"픽업 가능 날짜는 오늘 이후여야 합니다."`로 실패합니다. 테스트 픽스처가 과거 날짜(`LocalDate.parse("2026-08-25")` 등)를 하드코딩하고 있어, 샌드박스의 실제 현재 날짜가 그 날짜를 지나면서 `Product.validatePickUpDates`의 "미래 날짜여야 함" 검증에 걸리는 날짜 하드코딩 문제입니다. 드롭 도메인 변경과는 완전히 무관하며(Flyway도 테스트 프로파일에선 비활성화), 이번 라운드에서 손대지 않았습니다. 별도로 테스트 픽스처를 상대 날짜(`LocalDate.now().plusDays(n)`)로 바꾸는 정리가 필요합니다.
