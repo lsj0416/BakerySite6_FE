@@ -106,7 +106,7 @@ export default function HomePage() {
               <h2 className="mt-2 font-serif text-2xl font-bold md:text-4xl" style={{ color: COLORS.text }}>취향에 맞을 것 같은 빵</h2>
               <p className="mt-2 text-sm" style={{ color: COLORS.muted }}>회원님의 조회·장바구니 기록을 바탕으로 골라봤어요.</p>
             </div>
-            <Link href="/categories" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>더 보기 <ArrowRight size={15} /></Link>
+            <Link href="/recommended" className="hidden items-center gap-1 text-sm font-bold md:flex" style={{ color: COLORS.accent }}>더 보기 <ArrowRight size={15} /></Link>
           </div>
           {recommendationsQuery.isLoading ? (
             <p className="py-16 text-center text-sm" style={{ color: COLORS.muted }}>추천 상품을 준비 중입니다...</p>
