@@ -12,4 +12,5 @@ export const COLORS = {
   green: "#537A5A",
   greenSoft: "#EDF4EE",
   danger: "#B64B3C",
+  dangerSoft: "#F7E9E6",
 } as const;
