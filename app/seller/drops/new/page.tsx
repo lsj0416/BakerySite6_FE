@@ -7,6 +7,7 @@ import { BackHeader } from "@/components/back-header";
 import { ProductImageUpload } from "@/components/product-image-upload";
 import { COLORS } from "@/lib/theme";
 import * as dropApi from "@/lib/api/drop";
+import * as productApi from "@/lib/api/product";
 import * as sellerApi from "@/lib/api/seller";
 import { useAuth } from "@/lib/auth/auth-context";
 import { ApiException } from "@/lib/api/types";
@@ -52,7 +53,7 @@ export default function NewDropPage() {
     price: "",
     totalQuantity: "",
     limitQuantity: "",
-    dropPeriodEnd: "",
+    category: "MEAL_BREADS" as productApi.ProductCategory,
   });
   const [dropStartDate, setDropStartDate] = useState("");
   const [dropStartHour, setDropStartHour] = useState<number | null>(null);
@@ -73,7 +74,7 @@ export default function NewDropPage() {
         imageUrl: form.imageUrl,
         pickUpAvailableDates: pickupDates,
         dropStart: `${dropPeriodStart}:00`,
-        dropEnd: `${form.dropPeriodEnd}:00`,
+        category: form.category,
         limitQuantity: Number(form.limitQuantity),
         price: Number(form.price),
         totalQuantity: Number(form.totalQuantity),
@@ -187,16 +188,23 @@ export default function NewDropPage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs" style={{ color: COLORS.muted }}>
-            드롭 마감 일시
+            카테고리
           </label>
-          <input
+          <select
             required
-            type="datetime-local"
-            value={form.dropPeriodEnd}
-            onChange={(e) => setForm((f) => ({ ...f, dropPeriodEnd: e.target.value }))}
+            value={form.category}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, category: e.target.value as productApi.ProductCategory }))
+            }
             className={inputClass}
             style={inputStyle}
-          />
+          >
+            {Object.entries(productApi.PRODUCT_CATEGORY_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex flex-col gap-1.5">

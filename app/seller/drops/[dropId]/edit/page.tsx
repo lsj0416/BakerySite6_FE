@@ -7,6 +7,7 @@ import { BackHeader } from "@/components/back-header";
 import { ProductImageUpload } from "@/components/product-image-upload";
 import { COLORS } from "@/lib/theme";
 import * as dropApi from "@/lib/api/drop";
+import * as productApi from "@/lib/api/product";
 import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { expandDateRange } from "@/lib/format";
@@ -46,7 +47,7 @@ export default function EditDropPage() {
     price: "",
     totalQuantity: "",
     limitQuantity: "",
-    dropEnd: "",
+    category: "MEAL_BREADS" as productApi.ProductCategory,
   });
   const [dropStartDate, setDropStartDate] = useState("");
   const [dropStartHour, setDropStartHour] = useState<number | null>(null);
@@ -63,15 +64,17 @@ export default function EditDropPage() {
   useEffect(() => {
     function sync() {
       if (drop && !initialized) {
-        setForm({
+        // ⚠️ GET /drops/mine 응답엔 category가 없다(DropInfoResponse에 그 필드 자체가 없음) —
+        // 저장된 카테고리를 미리 채울 방법이 없어 기본값을 보여주고 판매자가 다시 골라야 한다.
+        setForm((f) => ({
+          ...f,
           name: drop.name,
           description: drop.description,
           imageUrl: drop.imageUrl,
           price: String(drop.price),
           totalQuantity: String(drop.totalQuantity),
           limitQuantity: String(drop.limitQuantity),
-          dropEnd: toDatetimeLocal(drop.dropEnd),
-        });
+        }));
         const [existingStartDate, existingStartTime] = toDatetimeLocal(drop.dropStart).split("T");
         setDropStartDate(existingStartDate ?? "");
         const existingStartHour = Number(existingStartTime?.slice(0, 2));
@@ -99,7 +102,7 @@ export default function EditDropPage() {
         imageUrl: form.imageUrl,
         pickUpAvailableDates: pickupDates,
         dropStart: `${dropPeriodStart}:00`,
-        dropEnd: `${form.dropEnd}:00`,
+        category: form.category,
         limitQuantity: Number(form.limitQuantity),
         price: Number(form.price),
         totalQuantity: Number(form.totalQuantity),
@@ -229,16 +232,23 @@ export default function EditDropPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs" style={{ color: COLORS.muted }}>
-              드롭 마감 일시
+              카테고리
             </label>
-            <input
+            <select
               required
-              type="datetime-local"
-              value={form.dropEnd}
-              onChange={(e) => setForm((f) => ({ ...f, dropEnd: e.target.value }))}
+              value={form.category}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, category: e.target.value as productApi.ProductCategory }))
+              }
               className={inputClass}
               style={inputStyle}
-            />
+            >
+              {Object.entries(productApi.PRODUCT_CATEGORY_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex flex-col gap-1.5">

@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import type { ProductCategory } from "@/lib/api/product";
 
 export type DropApiStatus = "UPCOMING" | "ACTIVE" | "COMPLETED";
 
@@ -111,9 +112,10 @@ export interface DropProductInfoResponse {
 
 /**
  * POST /register와 PATCH /{dropId}가 공유하는 바디 DTO(둘 다 백엔드에서 동일한
- * DropProductInfoRequest를 받음 — 2026-07-28 실제 컨트롤러 확인. 이전엔 register가
- * pickUpAvailableDateList/dropPeriodStart/dropPeriodEnd라는 별도 필드명을 쓴다고
- * 문서에 적혀 있었으나 실제 코드엔 없는 필드라 등록 시 400 C001로 실패했었다).
+ * DropInfoRequest를 받음 — 2026-08-27 백엔드 소스(DropController/DropInfoRequest)로
+ * 재확인. dropEnd는 요청에 없다 — 백엔드가 dropStart + 60분으로 항상 자동 계산해서
+ * 보내도 무시된다(그래서 아예 필드 자체를 없앴다). category는 상품과 같은
+ * Category enum을 그대로 쓰고 @NotNull 필수라 안 보내면 C001로 실패한다.
  */
 export interface DropProductInfoRequest {
   name: string;
@@ -121,7 +123,7 @@ export interface DropProductInfoRequest {
   imageUrl: string;
   pickUpAvailableDates: string[];
   dropStart: string;
-  dropEnd: string;
+  category: ProductCategory;
   limitQuantity: number;
   price: number;
   totalQuantity: number;
