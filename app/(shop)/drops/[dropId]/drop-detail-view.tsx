@@ -13,7 +13,13 @@ import { useAuth } from "@/lib/auth/auth-context";
 import * as dropApi from "@/lib/api/drop";
 import { productImageUrl } from "@/lib/api/product";
 import * as recommendationApi from "@/lib/api/recommendation";
-import { createOrContinuePendingOrder, getPendingOrder } from "@/lib/api/order";
+import {
+  createOrContinuePendingOrder,
+  getPendingOrder,
+  type OrderDetailResponse,
+  type PendingOrderResult,
+} from "@/lib/api/order";
+import { PendingOrderDialog } from "@/components/pending-order-dialog";
 import { ApiException } from "@/lib/api/types";
 import { toDropStatus } from "@/lib/types";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
@@ -50,8 +56,12 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
   // 회수하지 못하는 유일한 구멍이라(OrderExpirationScheduler 주석 참고), 그 구멍을
   // 최소화하려면 이동 전에 주문 생성까지 같은 호출 체인 안에서 끝내야 한다. 이후 화면은
   // orderId만으로 서버 상태를 다시 조회하므로, URL에는 qty/금액을 아예 싣지 않는다.
+  // 같은 드롭이라도 기존 주문의 수량·픽업일은 방금 고른 값과 다를 수 있으므로,
+  // 이어가기 전에 무엇이 남아 있는지 보여준다.
+  const [pendingOrder, setPendingOrder] = useState<OrderDetailResponse | null>(null);
+
   const reserveMutation = useMutation({
-    mutationFn: async (): Promise<number> => {
+    mutationFn: async (): Promise<PendingOrderResult> => {
       if (!effectivePickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
       await dropApi.lockStart(dropId, qty);
 
@@ -66,8 +76,12 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
         },
       );
     },
-    onSuccess: (orderId) => {
-      router.push(`/order?orderId=${orderId}`);
+    onSuccess: (result) => {
+      if (result.kind === "existing") {
+        setPendingOrder(result.order);
+        return;
+      }
+      router.push(`/order?orderId=${result.orderId}`);
     },
   });
 
@@ -456,6 +470,18 @@ export function DropDetailView({ dropId, drop }: { dropId: number; drop: dropApi
           </button>
         )}
       </div>
+
+      {/*
+        드롭에는 onCancelAndReorder를 넘기지 않는다 — 드롭 주문서는 lock-start로 재고를
+        선점해야 만들 수 있는데, 이미 RESERVED인 참여 이력이 있으면 재선점이 DR014로
+        실패한다(docs/drop-api.md §9). "취소하고 새로 주문"을 제공하면 기존 주문만 지워지고
+        새 주문은 못 만드는 상태로 끝날 수 있어, 취소는 주문서 화면에만 남겨둔다.
+      */}
+      <PendingOrderDialog
+        order={pendingOrder}
+        onViewExisting={() => router.push(`/order?orderId=${pendingOrder?.orderId}`)}
+        onDismiss={() => setPendingOrder(null)}
+      />
     </div>
   );
 }

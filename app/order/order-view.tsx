@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -37,9 +37,22 @@ type ReservationTimeStatus =
   | { status: "active"; expiresAtMs: number } // 유효한 미래 시각
   | { status: "expired" }; // 유효한 과거 시각
 
-/** reservationExpiresAt을 한 곳에서만 파싱해 파생 상태로 만든다 — 렌더 곳곳에서 new Date()를 반복하지 않기 위함. */
+/**
+ * 드롭 주문인지 판별. salesType이 정본이지만, 항목의 dropId도 함께 본다(둘 중 하나라도
+ * 드롭이면 드롭으로 취급 — 유효 시간 관련 안내를 잘못 감추는 쪽이 더 위험하므로).
+ */
+function isDropOrder(order: OrderDetailResponse) {
+  return order.salesType === "DROP" || order.items.some((item) => item.dropId != null);
+}
+
+/**
+ * reservationExpiresAt을 한 곳에서만 파싱해 파생 상태로 만든다 — 렌더 곳곳에서 new Date()를 반복하지 않기 위함.
+ *
+ * 주문서 유효 시간은 드롭 재고 선점에서만 의미가 있다. 일반상품 주문은 선점이 없어
+ * "not-applicable"로 두고, 카운트다운·만료 안내·만료로 인한 결제 차단을 전부 건너뛴다.
+ */
 function classifyReservationTime(order: OrderDetailResponse | undefined, now: Date): ReservationTimeStatus {
-  if (!order || order.orderState !== "PENDING") return { status: "not-applicable" };
+  if (!order || order.orderState !== "PENDING" || !isDropOrder(order)) return { status: "not-applicable" };
   const raw = order.reservationExpiresAt;
   if (!raw) return { status: "missing" };
   const ms = new Date(raw).getTime();
@@ -55,6 +68,7 @@ export function OrderView() {
   const orderId = orderIdValid ? orderIdParam : null;
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [exitDialogOpen, setExitDialogOpen] = useState(false);
 
   const orderQuery = useQuery({
     queryKey: ["order-detail", orderId],
@@ -98,6 +112,53 @@ export function OrderView() {
     if (orderId === null || !isTerminalOrderState) return;
     clearProcessingMarker(orderId);
   }, [orderId, isTerminalOrderState]);
+
+  /**
+   * 결제하지 않은 주문서를 두고 나가려 할 때 확인 다이얼로그를 띄우기 위한 뒤로가기 가드.
+   *
+   * 화면 위에 더미 히스토리 항목을 하나 쌓아둔다. 사용자가 뒤로가기를 하면 그 더미가
+   * 먼저 소비되므로 화면은 그대로 남고, 그 사이에 다이얼로그를 띄울 수 있다. 헤더의
+   * 뒤로가기 버튼도 결국 history.back()이라(BackHeader) popstate 하나로 둘 다 잡힌다.
+   *
+   * ⚠️ 탭 닫기·새로고침은 이 방식으로 잡히지 않는다(beforeunload에서 비동기 취소 요청을
+   * 기다릴 수 없고, sendBeacon은 Authorization 헤더를 못 싣는다). 그쪽은 서버의 주문
+   * 만료 배치가 회수하는 것이 정답이므로 여기서 흉내내지 않는다.
+   */
+  const guardArmedRef = useRef(false);
+  // 결제 결과를 기다리는 중(PROCESSING)에는 가드를 걸지 않는다 — 그 상태에서 취소를
+  // 제안하면 이미 나간 결제와 경합할 수 있다.
+  const exitGuardActive = order?.orderState === "PENDING" && effectiveProcessingMarker === null;
+
+  useEffect(() => {
+    if (!exitGuardActive) return;
+
+    window.history.pushState({ openbakeOrderExitGuard: true }, "");
+    guardArmedRef.current = true;
+
+    const handlePopState = () => {
+      // 이미 "나가기"를 확정한 뒤의 back이면 그대로 통과시킨다.
+      if (!guardArmedRef.current) return;
+      guardArmedRef.current = false; // 더미 항목은 방금 소비됐다
+      setExitDialogOpen(true);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [exitGuardActive]);
+
+  /** 다이얼로그를 그냥 닫고 화면에 머무는 경우 — 다음 뒤로가기도 잡도록 더미를 새로 쌓는다. */
+  function stayOnOrder() {
+    setExitDialogOpen(false);
+    window.history.pushState({ openbakeOrderExitGuard: true }, "");
+    guardArmedRef.current = true;
+  }
+
+  /** 주문은 그대로 두고 화면만 벗어난다(PENDING 유지 — 나중에 이어서 결제 가능). */
+  function leaveKeepingOrder() {
+    guardArmedRef.current = false;
+    setExitDialogOpen(false);
+    router.back();
+  }
 
   // 결제가 서버에서 확정됐다면(다른 탭에서 새로고침을 눌렀거나 등) 버튼을 누르게 두지 않고 바로 이동.
   useEffect(() => {
@@ -167,6 +228,19 @@ export function OrderView() {
     },
   });
 
+  /** 이탈 확인 다이얼로그의 "취소하고 나가기" — 취소 응답을 받은 뒤에만 화면을 벗어난다. */
+  const cancelAndLeaveMutation = useMutation({
+    mutationFn: () => {
+      if (orderId === null) throw new ApiException("C001", "잘못된 접근입니다.");
+      return cancelOrder(orderId);
+    },
+    onSuccess: () => {
+      guardArmedRef.current = false;
+      setExitDialogOpen(false);
+      router.back();
+    },
+  });
+
   const refreshMutation = useMutation({
     mutationFn: () => orderQuery.refetch(),
   });
@@ -232,7 +306,10 @@ export function OrderView() {
       order.orderState === "FAILED"
         ? "결제에 실패해 주문이 종료됐습니다."
         : order.orderState === "EXPIRED"
-          ? "주문서 유효 시간이 지나 자동으로 종료됐습니다."
+          ? // 일반상품 화면에는 "유효 시간"이라는 개념 자체를 노출하지 않는다.
+            dropItem
+            ? "주문서 유효 시간이 지나 자동으로 종료됐습니다."
+            : "주문이 종료됐습니다."
           : "취소된 주문입니다.";
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
@@ -497,6 +574,34 @@ export function OrderView() {
         {cancelMutation.isError && (
           <p className="mt-2 text-xs" style={{ color: "#E0554F" }}>
             {errorMessage(cancelMutation.error, "주문 취소에 실패했습니다.")}
+          </p>
+        )}
+      </ConfirmDialog>
+
+      {/*
+        두 버튼 모두 화면을 벗어난다 — 머무르려면 Esc·배경 클릭(onDismiss)으로 닫는다.
+        그래서 취소 버튼이 "닫기"가 아니라 "나중에 이어서 결제"일 수 있다.
+      */}
+      <ConfirmDialog
+        open={exitDialogOpen}
+        title="주문서를 나가시겠어요?"
+        description="아직 결제가 끝나지 않았습니다. 주문을 취소하고 나갈지, 그대로 두고 나중에 이어서 결제할지 선택해주세요."
+        confirmLabel="취소하고 나가기"
+        cancelLabel="나중에 이어서 결제"
+        destructive
+        isPending={cancelAndLeaveMutation.isPending}
+        onConfirm={() => cancelAndLeaveMutation.mutate()}
+        onCancel={leaveKeepingOrder}
+        onDismiss={stayOnOrder}
+      >
+        <p className="text-xs" style={{ color: COLORS.muted }}>
+          {dropItem
+            ? "취소하면 선점했던 재고가 반환되며 되돌릴 수 없습니다."
+            : "취소하면 되돌릴 수 없습니다. 아직 결제 전이라 환불은 발생하지 않습니다."}
+        </p>
+        {cancelAndLeaveMutation.isError && (
+          <p className="mt-2 text-xs" style={{ color: "#E0554F" }}>
+            {errorMessage(cancelAndLeaveMutation.error, "주문 취소에 실패했습니다.")}
           </p>
         )}
       </ConfirmDialog>

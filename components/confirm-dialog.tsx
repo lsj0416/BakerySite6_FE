@@ -15,6 +15,14 @@ interface ConfirmDialogProps {
   isPending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * Esc·배경 클릭으로 닫을 때. 생략하면 onCancel과 같다.
+   *
+   * 취소 버튼이 "닫기"가 아니라 그 자체로 또 다른 행동일 때(예: 다른 화면으로 이동)
+   * 필요하다 — 그런 다이얼로그에서 Esc가 onCancel을 부르면, 사용자는 그냥 닫으려다
+   * 의도치 않은 행동을 실행하게 된다.
+   */
+  onDismiss?: () => void;
 }
 
 /** 공용 확인 다이얼로그. open이 false면 마운트 자체를 하지 않아, 닫힐 때 포커스 복귀·스크롤
@@ -34,7 +42,9 @@ function ConfirmDialogContent({
   isPending,
   onConfirm,
   onCancel,
+  onDismiss,
 }: Omit<ConfirmDialogProps, "open">) {
+  const dismiss = onDismiss ?? onCancel;
   const titleId = useId();
   const descId = useId();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -44,10 +54,10 @@ function ConfirmDialogContent({
   // (포커스 저장·스크롤 잠금이 재실행되면 안 됨) 최신값을 ref로 미러링해서 읽는다.
   // ref 쓰기는 렌더 중이 아니라 커밋 이후(effect)에 해야 하므로 별도 effect로 분리.
   const isPendingRef = useRef(isPending);
-  const onCancelRef = useRef(onCancel);
+  const dismissRef = useRef(dismiss);
   useEffect(() => {
     isPendingRef.current = isPending;
-    onCancelRef.current = onCancel;
+    dismissRef.current = dismiss;
   });
 
   useEffect(() => {
@@ -58,7 +68,7 @@ function ConfirmDialogContent({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !isPendingRef.current) {
-        onCancelRef.current();
+        dismissRef.current();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -72,7 +82,7 @@ function ConfirmDialogContent({
 
   const handleBackdropClick = () => {
     // 요청 진행 중에는 배경 클릭으로 닫지 않는다 — 결과를 못 보고 잃는 것을 방지.
-    if (!isPending) onCancel();
+    if (!isPending) dismiss();
   };
 
   return createPortal(

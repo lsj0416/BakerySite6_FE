@@ -12,7 +12,14 @@ import { useAuth } from "@/lib/auth/auth-context";
 import * as cartApi from "@/lib/api/cart";
 import * as productApi from "@/lib/api/product";
 import { productImageUrl, PRODUCT_CATEGORY_LABEL } from "@/lib/api/product";
-import { createOrContinuePendingOrder } from "@/lib/api/order";
+import {
+  cancelOrder,
+  createOrContinuePendingOrder,
+  createPendingOrder,
+  type OrderDetailResponse,
+  type PendingOrderResult,
+} from "@/lib/api/order";
+import { PendingOrderDialog } from "@/components/pending-order-dialog";
 import * as recommendationApi from "@/lib/api/recommendation";
 import { recommendationItemToCatalogProduct } from "@/lib/catalog";
 import { ApiException } from "@/lib/api/types";
@@ -43,17 +50,49 @@ export function ProductDetailView({
     onSuccess: () => router.push("/cart"),
   });
 
-  // 장바구니를 거치지 않고 바로 주문서(PENDING)를 만든다. 진행 중 주문이 이미 있으면(OR006)
-  // 자동으로 결제·취소하지 않고 그 주문으로 이어서 진행한다(장바구니/드롭 결제와 동일 패턴).
+  // 진행 중 주문이 이미 있어(OR006) 새 주문서를 못 만든 경우, 그 주문을 여기 담아
+  // 다이얼로그로 먼저 알린다 — 말없이 남의 주문서로 이동하지 않기 위함.
+  const [pendingOrder, setPendingOrder] = useState<OrderDetailResponse | null>(null);
+
+  // 장바구니를 거치지 않고 바로 주문서(PENDING)를 만든다. 진행 중 주문이 이미 있으면
+  // 자동으로 결제·취소하지 않는다(장바구니/드롭 결제와 동일 패턴).
   const buyNowMutation = useMutation({
-    mutationFn: async (): Promise<number> => {
+    mutationFn: async (): Promise<PendingOrderResult> => {
       if (!pickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
       return createOrContinuePendingOrder({ productId, quantity: qty, pickUpDate: pickupDate });
     },
+    onSuccess: (result) => {
+      if (result.kind === "existing") {
+        setPendingOrder(result.order);
+        return;
+      }
+      router.push(`/order?orderId=${result.orderId}`);
+    },
+  });
+
+  // 다이얼로그에서 "예"를 고른 경우 — 기존 주문을 취소해 슬롯을 비우고, 방금 고른 상품으로
+  // 주문서를 새로 만든다. 취소가 성공해야만 생성으로 넘어가므로 두 주문이 함께 사라지는
+  // 경우는 없다(취소 실패 시 기존 주문은 그대로 남고 다이얼로그에 에러만 뜬다).
+  const cancelAndReorderMutation = useMutation({
+    mutationFn: async (): Promise<number> => {
+      if (!pendingOrder) throw new ApiException("C001", "취소할 주문을 찾을 수 없습니다.");
+      if (!pickupDate) throw new ApiException("OR005", "픽업 날짜를 선택해야 합니다.");
+      await cancelOrder(pendingOrder.orderId);
+      // 슬롯을 방금 비웠으니 이어가기(createOrContinue) 없이 새로 만든다 — 여기서 또 충돌하면
+      // 우리가 비운 것과 다른 원인이므로 감추지 않고 그대로 에러를 보여준다.
+      const created = await createPendingOrder({ productId, quantity: qty, pickUpDate: pickupDate });
+      return created.orderId;
+    },
     onSuccess: (orderId) => {
+      setPendingOrder(null);
       router.push(`/order?orderId=${orderId}`);
     },
   });
+
+  function closePendingOrderDialog() {
+    cancelAndReorderMutation.reset();
+    setPendingOrder(null);
+  }
 
   // 두 버튼이 각자 자기 실패만 보여주게 한다 — 리셋 없이 error를 그대로 두면, 장바구니
   // 담기가 실패한 채로 바로구매를 눌러도 addToCartMutation의 옛 에러가 우선순위상 계속
@@ -326,6 +365,21 @@ export function ProductDetailView({
           </>
         )}
       </div>
+
+      <PendingOrderDialog
+        order={pendingOrder}
+        onCancelAndReorder={() => cancelAndReorderMutation.mutate()}
+        onViewExisting={() => router.push(`/order?orderId=${pendingOrder?.orderId}`)}
+        onDismiss={closePendingOrderDialog}
+        isPending={cancelAndReorderMutation.isPending}
+        errorMessage={
+          cancelAndReorderMutation.error instanceof ApiException
+            ? cancelAndReorderMutation.error.message
+            : cancelAndReorderMutation.isError
+              ? "기존 주문을 취소하고 새로 주문하지 못했습니다."
+              : null
+        }
+      />
     </div>
   );
 }

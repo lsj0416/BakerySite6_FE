@@ -9,7 +9,14 @@ import { BackHeader } from "@/components/back-header";
 import { BreadBox } from "@/components/bread-box";
 import { COLORS } from "@/lib/theme";
 import * as cartApi from "@/lib/api/cart";
-import { createOrContinuePendingOrder } from "@/lib/api/order";
+import {
+  cancelOrder,
+  createOrContinuePendingOrder,
+  createPendingOrder,
+  type OrderDetailResponse,
+  type PendingOrderResult,
+} from "@/lib/api/order";
+import { PendingOrderDialog } from "@/components/pending-order-dialog";
 import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { fmtPickup } from "@/lib/format";
@@ -141,18 +148,48 @@ export default function CartPage() {
       return next;
     });
 
+  // 진행 중 주문이 있어 새 주문서를 못 만든 경우, 그 주문을 다이얼로그로 먼저 알린다.
+  const [pendingOrder, setPendingOrder] = useState<OrderDetailResponse | null>(null);
+
   const checkoutMutation = useMutation({
-    mutationFn: async (): Promise<number> => {
+    mutationFn: async (): Promise<PendingOrderResult> => {
       const cartItemIds = checkoutItems.map((item) => item.cartItemId);
       if (cartItemIds.length === 0) {
         throw new ApiException("C001", "주문할 상품을 선택해주세요.");
       }
       return createOrContinuePendingOrder({ cartItemIds });
     },
+    onSuccess: (result) => {
+      if (result.kind === "existing") {
+        setPendingOrder(result.order);
+        return;
+      }
+      router.push(`/order?orderId=${result.orderId}`);
+    },
+  });
+
+  // 다이얼로그에서 "예" — 기존 주문을 취소해 슬롯을 비우고 선택한 장바구니 항목으로 새로 주문.
+  const cancelAndReorderMutation = useMutation({
+    mutationFn: async (): Promise<number> => {
+      if (!pendingOrder) throw new ApiException("C001", "취소할 주문을 찾을 수 없습니다.");
+      const cartItemIds = checkoutItems.map((item) => item.cartItemId);
+      if (cartItemIds.length === 0) {
+        throw new ApiException("C001", "주문할 상품을 선택해주세요.");
+      }
+      await cancelOrder(pendingOrder.orderId);
+      const created = await createPendingOrder({ cartItemIds });
+      return created.orderId;
+    },
     onSuccess: (orderId) => {
+      setPendingOrder(null);
       router.push(`/order?orderId=${orderId}`);
     },
   });
+
+  function closePendingOrderDialog() {
+    cancelAndReorderMutation.reset();
+    setPendingOrder(null);
+  }
 
   const checkoutLabel = () => {
     if (checkoutMutation.isPending) return "주문 생성 중...";
@@ -424,6 +461,21 @@ export default function CartPage() {
           </button>
         </div>
       )}
+
+      <PendingOrderDialog
+        order={pendingOrder}
+        onCancelAndReorder={() => cancelAndReorderMutation.mutate()}
+        onViewExisting={() => router.push(`/order?orderId=${pendingOrder?.orderId}`)}
+        onDismiss={closePendingOrderDialog}
+        isPending={cancelAndReorderMutation.isPending}
+        errorMessage={
+          cancelAndReorderMutation.error instanceof ApiException
+            ? cancelAndReorderMutation.error.message
+            : cancelAndReorderMutation.isError
+              ? "기존 주문을 취소하고 새로 주문하지 못했습니다."
+              : null
+        }
+      />
     </div>
   );
 }

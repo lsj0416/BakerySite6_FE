@@ -91,24 +91,48 @@ export function isPendingOrderConflict(err: unknown): boolean {
 }
 
 /**
- * 주문서를 만들되, 이미 진행 중인 주문 때문에 막히면 그 주문으로 이어간다.
+ * 주문서 생성 결과.
+ *
+ * "새로 만들었다"와 "이미 있던 주문을 재사용한다"를 갈라서 돌려준다. 예전엔 양쪽 다
+ * orderId(number) 하나로 뭉뚱그려 반환해서, 호출부가 둘을 구분할 방법이 없었다 —
+ * 그래서 사용자가 방금 고른 상품과 전혀 다른 주문서로 아무 설명 없이 이동해버렸다.
+ * 이 구분이 있어야 화면에서 "진행 중인 주문이 있다"고 먼저 알릴 수 있다.
+ */
+export type PendingOrderResult =
+  | { kind: "created"; orderId: number }
+  | { kind: "existing"; order: OrderDetailResponse };
+
+/**
+ * 주문서를 만들되, 이미 진행 중인 주문 때문에 막히면 그 주문을 함께 돌려준다.
  *
  * `accept`로 "이어가도 되는 주문인지"를 호출부가 판단한다(드롭은 같은 드롭의 주문일
  * 때만 이어가야 한다). 넘기지 않으면 진행 중 주문을 그대로 받아들인다.
- * 자동으로 결제하거나 취소하지 않는다 — 화면 이동만 한다.
+ * 자동으로 결제하거나 취소하지 않고, 화면 이동도 하지 않는다 — 재사용 여부를 알리는
+ * 것까지가 이 함수의 책임이고, 이어갈지 말지는 호출부(사용자)가 정한다.
  */
 export async function createOrContinuePendingOrder(
   body: OrderCreateRequest,
   options: { accept?: (pending: OrderDetailResponse) => boolean; conflictMessage?: string } = {},
-): Promise<number> {
+): Promise<PendingOrderResult> {
   try {
     const created = await createPendingOrder(body);
-    return created.orderId;
+    return { kind: "created", orderId: created.orderId };
   } catch (err) {
     if (!isPendingOrderConflict(err)) throw err;
 
     const pending = await getPendingOrder();
-    if (pending && (options.accept?.(pending) ?? true)) return pending.orderId;
+    if (pending && (options.accept?.(pending) ?? true)) return { kind: "existing", order: pending };
+
+    /**
+     * 여기까지 왔다는 건 "충돌은 났는데 이어갈 주문은 없다"는 뜻이다.
+     *
+     * C004는 주문 슬롯 말고 어떤 제약 위반에서도 나올 수 있어서(공용 폴백 코드),
+     * 진행 중 주문이 없다면 그건 슬롯 충돌이 아니라 다른 원인이다. 그런 경우까지
+     * "주문 내역에서 기존 주문을 확인하세요"라고 안내하면 사용자는 존재하지도 않는
+     * 주문을 찾아 헤매게 된다(2026-08-27 배포 서버에서 실제로 발생 — /orders/pending은
+     * 200에 빈 응답이었다). 서버가 준 원래 메시지를 그대로 보여주는 편이 정확하다.
+     */
+    if (err instanceof ApiException && err.code !== "OR006") throw err;
 
     throw new ApiException(
       "OR006",
