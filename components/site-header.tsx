@@ -117,9 +117,6 @@ export function SiteHeader() {
           <Link href="/recommended" style={{ color: COLORS.text }}>
             추천 상품
           </Link>
-          <Link href="/categories?sort=new" style={{ color: COLORS.text }}>
-            신상품
-          </Link>
           <Link href="/drop" style={{ color: COLORS.deep }}>
             드롭
           </Link>

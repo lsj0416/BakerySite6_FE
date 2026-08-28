@@ -91,16 +91,20 @@ export function lockStart(dropId: number, quantity: number) {
 }
 
 /**
- * 판매자 본인 드롭 응답(docs/drop-api.md §1.3/§2.3, /mine·PATCH 공용).
- * 고객용 DropInfo와 거의 같지만 dropId가 추가되고, 픽업일 필드명이
- * pickUpAvailableDates로 다르다(두 응답 DTO가 서로 다른 클래스라 이름이 안 맞춰져 있음).
+ * 판매자 본인 드롭 응답(/mine·PATCH 공용).
+ *
+ * ⚠️ 픽업일 필드명이 **요청(`pickUpAvailableDates`)과 응답(`pickupDates`)에서 서로 다르다.**
+ * 백엔드 `63ab437`(2026-08-13)에서 응답 DTO가 DropInfoResponse 하나로 합쳐지며 바뀐 것으로,
+ * 여기가 `pickUpAvailableDates`로 남아 있는 동안 드롭 수정 화면이 `[...undefined]`로 죽었다
+ * (Next의 global-error "This page couldn't load"). 상품(Product) 응답은 여전히
+ * `pickUpAvailableDates`라 이름이 같지 않으니 복붙 주의.
  */
 export interface DropProductInfoResponse {
   dropId: number;
   name: string;
   description: string;
   imageUrl: string;
-  pickUpAvailableDates: string[];
+  pickupDates: string[];
   dropStart: string;
   dropEnd: string;
   limitQuantity: number;
