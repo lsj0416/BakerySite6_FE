@@ -92,8 +92,18 @@ export default function SellerDashboardPage() {
     enabled: isApproved,
   });
 
+  /**
+   * 조회에 실패해도 React Query는 마지막으로 성공한 응답을 data에 그대로 들고 있다.
+   * 그걸 그대로 그리면 화면이 조용히 거짓말을 한다 — 백엔드 `/drops/mine`이 깨졌을 때
+   * 이미 삭제한 드롭이 "다음 드롭"과 "내 드롭"에 계속 남아 있었고, 그 뒤 수정한 내용도
+   * 영영 반영되지 않았다(2026-08-28). 에러일 땐 데이터가 없는 것으로 취급한다.
+   */
+  const myDrops = myDropsQuery.isError ? undefined : myDropsQuery.data;
+  const myProducts = myProductsQuery.isError ? undefined : myProductsQuery.data;
+  const pickupOrders = pickupOrdersQuery.isError ? undefined : pickupOrdersQuery.data;
+
   const activeItems =
-    pickupOrdersQuery.data?.content
+    pickupOrders?.content
       .filter((o) => o.orderState !== "CANCELED")
       .flatMap((o) => o.items.filter((i) => i.itemStatus !== "CANCELED")) ?? [];
   const todayStr = toDateStr(new Date());
@@ -113,8 +123,8 @@ export default function SellerDashboardPage() {
   const maxPickupCnt = Math.max(...pickupChartData.map((d) => d.cnt), 1);
 
   // "내 드롭" 목록과 같은 myDropsQuery를 재사용 — 별도 API 호출 없이 파생만 한다.
-  const activeDrops = myDropsQuery.data?.filter((d) => d.dropStatus === "ACTIVE") ?? [];
-  const nextUpcomingDrop = myDropsQuery.data
+  const activeDrops = myDrops?.filter((d) => d.dropStatus === "ACTIVE") ?? [];
+  const nextUpcomingDrop = myDrops
     ?.filter((d) => d.dropStatus === "UPCOMING")
     .sort((a, b) => a.dropStart.localeCompare(b.dropStart))[0];
 
@@ -245,8 +255,13 @@ export default function SellerDashboardPage() {
                 불러오는 중...
               </p>
             )}
+            {myDropsQuery.isError && (
+              <p className="text-sm" style={{ color: "#E0554F" }}>
+                드롭 현황을 불러오지 못했습니다.
+              </p>
+            )}
 
-            {!myDropsQuery.isLoading && (
+            {!myDropsQuery.isLoading && !myDropsQuery.isError && (
               <>
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-semibold" style={{ color: COLORS.muted }}>
@@ -325,7 +340,12 @@ export default function SellerDashboardPage() {
                 불러오는 중...
               </p>
             )}
-            {!pickupOrdersQuery.isLoading && todayQty === 0 && (
+            {pickupOrdersQuery.isError && (
+              <p className="px-4 py-3 text-sm" style={{ color: "#E0554F" }}>
+                픽업 예정을 불러오지 못했습니다.
+              </p>
+            )}
+            {!pickupOrdersQuery.isLoading && !pickupOrdersQuery.isError && todayQty === 0 && (
               <p className="px-4 py-3 text-sm" style={{ color: COLORS.muted }}>
                 오늘 픽업 예정 주문이 없습니다
               </p>
@@ -466,13 +486,13 @@ export default function SellerDashboardPage() {
                 상품 목록을 불러오지 못했습니다.
               </p>
             )}
-            {myProductsQuery.data?.content.length === 0 && (
+            {myProducts?.content.length === 0 && (
               <p className="text-sm" style={{ color: COLORS.muted }}>
                 등록한 일반상품이 없습니다.
               </p>
             )}
 
-            {myProductsQuery.data?.content.map((product) => (
+            {myProducts?.content.map((product) => (
               <div
                 key={product.productId}
                 className="rounded-xl p-4 flex flex-col gap-2"
@@ -550,7 +570,7 @@ export default function SellerDashboardPage() {
               </p>
             )}
 
-            {myDropsQuery.data && (
+            {myDrops && (
               <div className="flex gap-2">
                 {DROP_TABS.map((tab) => (
                   <button
@@ -570,13 +590,13 @@ export default function SellerDashboardPage() {
               </div>
             )}
 
-            {myDropsQuery.data?.filter((d) => d.dropStatus === dropTab).length === 0 && (
+            {myDrops?.filter((d) => d.dropStatus === dropTab).length === 0 && (
               <p className="text-sm" style={{ color: COLORS.muted }}>
                 {DROP_TABS.find((t) => t.status === dropTab)?.label} 드롭이 없습니다.
               </p>
             )}
 
-            {myDropsQuery.data
+            {myDrops
               ?.filter((d) => d.dropStatus === dropTab)
               .map((drop) => (
               <div
