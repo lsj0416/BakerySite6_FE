@@ -8,6 +8,7 @@ import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
 import { OrderStatusBadge } from "@/components/order-status-badge";
 import * as orderApi from "@/lib/api/order";
+import { productImageUrl } from "@/lib/api/product";
 import { ORDER_STATUS_LABEL } from "@/lib/types";
 import { fmtDateTime, fmtPickup, getDDay } from "@/lib/format";
 
@@ -102,7 +103,11 @@ export default function OrderListPage() {
                 </span>
               </div>
               <div className="flex gap-3 items-center mb-3">
-                <BreadBox className="w-12 h-12 rounded-lg flex-shrink-0" label={order.representativeProductName} />
+                <BreadBox
+                  className="w-12 h-12 rounded-lg flex-shrink-0"
+                  src={productImageUrl(order.representativeImageUrl)}
+                  label={order.representativeProductName}
+                />
                 <div>
                   <p className="text-xs" style={{ color: COLORS.muted }}>
                     {order.representativeSellerName}

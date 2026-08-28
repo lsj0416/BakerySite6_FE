@@ -141,7 +141,11 @@ const PRODUCT_IMAGE_BASE_URL =
  * 백엔드 imageUrl은 전체 URL이 아닌 S3 key다. 버킷의 익명 GET이 막혀 있으면 조합된
  * URL도 403/404가 될 수 있으므로 배포 환경에서 공개 읽기 정책을 별도로 확인해야 한다.
  */
-export function productImageUrl(key: string): string {
-  if (!key || /^https?:\/\//i.test(key) || key.startsWith("blob:")) return key;
+export function productImageUrl(key: string | null | undefined): string {
+  // null은 그대로 돌려주면 <img src={null}>이 되므로 빈 문자열로 눌러 준다 — 호출부(BreadBox)가
+  // falsy를 "이미지 없음"으로 보고 플레이스홀더를 그린다. 주문 목록의 대표 이미지처럼
+  // 백엔드가 null을 줄 수 있는 필드가 있어 시그니처에서 받아 준다.
+  if (!key) return "";
+  if (/^https?:\/\//i.test(key) || key.startsWith("blob:")) return key;
   return `${PRODUCT_IMAGE_BASE_URL.replace(/\/$/, "")}/${key.replace(/^\//, "")}`;
 }

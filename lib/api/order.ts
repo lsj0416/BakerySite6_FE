@@ -260,6 +260,12 @@ export type OrderHistoryState = "PAID" | "CANCELED";
 export interface OrderSummaryResponse {
   orderId: number;
   representativeProductName: string;
+  /**
+   * 대표 상품 이미지(주문 시점 스냅샷). 이 필드가 생기기 전(마이그레이션 V3 이전)에
+   * 만들어진 옛 주문은 null이다 — 백엔드가 의도적으로 백필하지 않았다(현재 이미지로
+   * 채우면 "주문 당시" 스냅샷이라는 의미가 깨지므로). null이면 화면은 플레이스홀더를 쓴다.
+   */
+  representativeImageUrl: string | null;
   /** 대표 상품을 뺀 나머지 항목 수. 0이면 단일 항목 주문. */
   otherItemCount: number;
   representativeSellerName: string;
