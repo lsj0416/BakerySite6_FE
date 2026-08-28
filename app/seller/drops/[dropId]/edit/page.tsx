@@ -7,7 +7,6 @@ import { BackHeader } from "@/components/back-header";
 import { ProductImageUpload } from "@/components/product-image-upload";
 import { COLORS } from "@/lib/theme";
 import * as dropApi from "@/lib/api/drop";
-import * as productApi from "@/lib/api/product";
 import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { expandDateRange } from "@/lib/format";
@@ -21,6 +20,13 @@ const inputStyle = {
 
 /** 드롭 시작 시간은 매장 운영 시간대 안에서만 오픈할 수 있도록 이 값들로 제한한다. */
 const DROP_START_HOURS = [9, 11, 13, 15, 17] as const;
+
+/**
+ * 드롭은 개념적으로 카테고리가 없는데(일반상품과 달리 세트/한정판 성격) 백엔드
+ * DropInfoRequest.category가 @NotNull 필수라 안 보내면 C001로 수정 자체가 막힌다.
+ * 판매자에게 무의미한 선택을 시키지 않기 위해 화면엔 안 보여주고 고정값만 실어 보낸다.
+ */
+const DROP_CATEGORY = "MEAL_BREADS" as const;
 
 /** "2026-08-01T10:00:00" -> "2026-08-01T10:00" (datetime-local input이 받는 포맷) */
 function toDatetimeLocal(iso: string): string {
@@ -47,7 +53,6 @@ export default function EditDropPage() {
     price: "",
     totalQuantity: "",
     limitQuantity: "",
-    category: "MEAL_BREADS" as productApi.ProductCategory,
   });
   const [dropStartDate, setDropStartDate] = useState("");
   const [dropStartHour, setDropStartHour] = useState<number | null>(null);
@@ -64,8 +69,6 @@ export default function EditDropPage() {
   useEffect(() => {
     function sync() {
       if (drop && !initialized) {
-        // ⚠️ GET /drops/mine 응답엔 category가 없다(DropInfoResponse에 그 필드 자체가 없음) —
-        // 저장된 카테고리를 미리 채울 방법이 없어 기본값을 보여주고 판매자가 다시 골라야 한다.
         setForm((f) => ({
           ...f,
           name: drop.name,
@@ -102,7 +105,7 @@ export default function EditDropPage() {
         imageUrl: form.imageUrl,
         pickUpAvailableDates: pickupDates,
         dropStart: `${dropPeriodStart}:00`,
-        category: form.category,
+        category: DROP_CATEGORY,
         limitQuantity: Number(form.limitQuantity),
         price: Number(form.price),
         totalQuantity: Number(form.totalQuantity),
@@ -230,27 +233,6 @@ export default function EditDropPage() {
               ))}
             </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs" style={{ color: COLORS.muted }}>
-              카테고리
-            </label>
-            <select
-              required
-              value={form.category}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, category: e.target.value as productApi.ProductCategory }))
-              }
-              className={inputClass}
-              style={inputStyle}
-            >
-              {Object.entries(productApi.PRODUCT_CATEGORY_LABEL).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-xs" style={{ color: COLORS.muted }}>
               픽업 가능 기간 (드롭 마감일 이후여야 함)
