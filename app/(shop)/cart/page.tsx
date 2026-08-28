@@ -254,7 +254,7 @@ export default function CartPage() {
               className="text-xs disabled:opacity-40"
               style={{ color: COLORS.muted }}
             >
-              선택 삭제
+              선택된 상품 삭제
             </button>
           </div>
 
