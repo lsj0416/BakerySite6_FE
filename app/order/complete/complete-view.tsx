@@ -7,6 +7,7 @@ import { Check, MapPin } from "lucide-react";
 import { COLORS } from "@/lib/theme";
 import { BreadBox } from "@/components/bread-box";
 import { getOrderDetail } from "@/lib/api/order";
+import { productImageUrl } from "@/lib/api/product";
 import { fmtPickup } from "@/lib/format";
 
 export function CompleteView() {
@@ -47,7 +48,14 @@ export function CompleteView() {
               style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
             >
               <div className="flex gap-3 mb-3">
-                <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" src={item.imageUrl} label={item.productName} />
+                {/* item.imageUrl은 백엔드가 저장한 원본 키/URL 그대로다(장바구니·상품 이미지와
+                    동일하게 S3 키만 오는 경우가 있음) — productImageUrl()로 감싸지 않으면
+                    /order·/orders 화면과 달리 이 화면만 깨진 이미지로 보였다. */}
+                <BreadBox
+                  className="w-14 h-14 rounded-lg flex-shrink-0"
+                  src={productImageUrl(item.imageUrl)}
+                  label={item.productName}
+                />
                 <div>
                   <p className="text-xs" style={{ color: COLORS.muted }}>
                     {item.seller.sellerName ?? "판매자 정보 없음"}

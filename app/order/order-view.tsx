@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -55,6 +55,17 @@ export function OrderView() {
   const orderId = orderIdValid ? orderIdParam : null;
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+
+  // 결제 전 필수 약관 동의. 새 주문/다른 orderId로 이동하면 다시 동의해야 하므로 orderId가
+  // 바뀔 때마다 초기화한다(새로고침은 useState 초기값 자체가 항상 false라 별도 처리 불필요 —
+  // localStorage 등에 영속화하지 않는다). effect가 아니라 렌더 중 비교로 리셋한다 —
+  // "다른 key로 바뀌면 state를 리셋"하는 케이스의 React 권장 패턴(리렌더 캐스케이드 방지).
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const [termsAgreedForOrderId, setTermsAgreedForOrderId] = useState(orderId);
+  if (orderId !== termsAgreedForOrderId) {
+    setTermsAgreedForOrderId(orderId);
+    setTermsAgreed(false);
+  }
 
   const orderQuery = useQuery({
     queryKey: ["order-detail", orderId],
@@ -129,7 +140,12 @@ export function OrderView() {
           "주문서 유효 시간을 확인할 수 없습니다. 주문 상태를 다시 확인해주세요.",
         );
       }
-      return payOrder(orderId, { termsAgreed: true });
+      // 버튼 disabled만 믿지 않고 여기서도 막는다 — DOM 조작이나 빠른 연속 클릭으로
+      // 체크 안 된 상태에서 결제 함수가 실행되는 걸 막기 위한 이중 방어.
+      if (!termsAgreed) {
+        throw new ApiException("C001", "약관에 동의해야 결제할 수 있습니다.");
+      }
+      return payOrder(orderId, { termsAgreed });
     },
     onSuccess: (res) => {
       if (orderId === null) return;
@@ -154,6 +170,16 @@ export function OrderView() {
       setLocalProcessingMarker(getProcessingMarker(orderId));
     },
   });
+
+  // disabled={payBlocked}만으로는 진짜 동시 더블클릭을 못 막는다(리렌더 전에 두 onClick이
+  // 같은 클로저에서 실행될 수 있음 — 이 세션에서 여러 버튼에 동일 패턴으로 실제 재현·수정됨).
+  // 결제처럼 되돌리기 어려운 액션이라 여기서도 ref로 한 번 더 막는다.
+  const payClickLockRef = useRef(false);
+  function handlePayClick() {
+    if (payClickLockRef.current) return;
+    payClickLockRef.current = true;
+    payMutation.mutate(undefined, { onSettled: () => { payClickLockRef.current = false; } });
+  }
 
   const cancelMutation = useMutation({
     mutationFn: () => {
@@ -275,7 +301,12 @@ export function OrderView() {
    * 뒤에야 충전 버튼이 나왔는데, 잔액이 이미 화면에 있으니 미리 알려주는 편이 낫다.
    */
   const insufficientBalance = balance !== null && balance < order.totalAmount;
-  const payBlocked = bothBlocked || expired || reservationUnknown;
+  // 잔액 조회가 아직 안 끝났으면(balance === null) "충분한지" 자체를 모르는 상태라
+  // 결제를 막는다 — 로딩 중에 결제 버튼이 먼저 활성화됐다가 잔액 도착 후 다시 막히는
+  // 깜빡임을 방지한다.
+  const balanceUnknown = balance === null;
+  const payBlocked =
+    bothBlocked || expired || reservationUnknown || !termsAgreed || balanceUnknown || insufficientBalance;
   const cancelBlocked = bothBlocked;
 
   return (
@@ -431,8 +462,33 @@ export function OrderView() {
                 {refreshMutation.isPending ? "확인 중..." : "주문 상태 새로고침"}
               </button>
             )}
+
+            <label className="flex cursor-pointer items-start gap-2.5 px-0.5 py-1 select-none">
+              <input
+                type="checkbox"
+                checked={termsAgreed}
+                onChange={(e) => setTermsAgreed(e.target.checked)}
+                aria-required="true"
+                className="sr-only"
+              />
+              <span
+                aria-hidden
+                className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
+                style={{
+                  background: termsAgreed ? COLORS.accent : COLORS.surface,
+                  border: `1.5px solid ${termsAgreed ? COLORS.accent : COLORS.border}`,
+                }}
+              >
+                {termsAgreed && <Check size={13} strokeWidth={3} color={COLORS.bg} />}
+              </span>
+              <span className="text-xs leading-relaxed" style={{ color: COLORS.text }}>
+                <span style={{ color: COLORS.accent, fontWeight: 700 }}>[필수]</span> 주문 상품 정보 및
+                결제 진행에 동의합니다.
+              </span>
+            </label>
+
             <button
-              onClick={() => payMutation.mutate()}
+              onClick={handlePayClick}
               disabled={payBlocked}
               className="w-full py-3.5 rounded-lg text-sm font-bold disabled:opacity-60"
               style={{ background: COLORS.accent, color: COLORS.bg }}
