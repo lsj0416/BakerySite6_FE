@@ -9,6 +9,7 @@ import { BreadBox } from "@/components/bread-box";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { COLORS } from "@/lib/theme";
 import * as orderApi from "@/lib/api/order";
+import { productImageUrl } from "@/lib/api/product";
 import { ApiException } from "@/lib/api/types";
 import { ORDER_STATUS_LABEL } from "@/lib/types";
 import { fmtDateTime, fmtPickup, getDDay } from "@/lib/format";
@@ -96,7 +97,14 @@ export default function OrderDetailPage() {
                       style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
                     >
                       <div className="flex gap-3">
-                        <BreadBox className="w-14 h-14 rounded-lg flex-shrink-0" label={item.productName} />
+                        {/* OrderDetailResponseItem.imageUrl은 응답에 있었지만 여기서만 안 쓰고
+                            있었다 — /order·/order/complete와 달리 이 화면만 항상 placeholder만
+                            보이던 원인. */}
+                        <BreadBox
+                          className="w-14 h-14 rounded-lg flex-shrink-0"
+                          src={productImageUrl(item.imageUrl)}
+                          label={item.productName}
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs" style={{ color: COLORS.muted }}>
                             {item.seller.sellerName ?? "판매자 정보 없음"}
