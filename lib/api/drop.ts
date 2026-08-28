@@ -98,6 +98,10 @@ export function lockStart(dropId: number, quantity: number) {
  * 여기가 `pickUpAvailableDates`로 남아 있는 동안 드롭 수정 화면이 `[...undefined]`로 죽었다
  * (Next의 global-error "This page couldn't load"). 상품(Product) 응답은 여전히
  * `pickUpAvailableDates`라 이름이 같지 않으니 복붙 주의.
+ *
+ * `category`는 백엔드 커밋 `0a763ce`(2026-08-28)에서 응답에 추가됐다. 그 전엔 없어서
+ * 수정 화면이 항상 기본값(식사빵)을 보여주고 판매자가 매번 다시 골라야 했는데, 그
+ * 가정이 타입에 그대로 남아 있으면 실제로 저장된 카테고리를 화면이 계속 무시하게 된다.
  */
 export interface DropProductInfoResponse {
   dropId: number;
@@ -112,6 +116,7 @@ export interface DropProductInfoResponse {
   totalQuantity: number;
   remainQuantity: number;
   dropStatus: DropApiStatus;
+  category: ProductCategory;
 }
 
 /**

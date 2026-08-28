@@ -525,7 +525,7 @@ export default function SellerDashboardPage() {
                   <button
                     onClick={() => handleProductDelete(product.productId)}
                     disabled={productDeleteMutation.isPending}
-                    className="flex-1 py-2 rounded-lg text-sm disabled:opacity-60"
+                    className="flex-1 py-2 rounded-lg text-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                     style={{ border: `1px solid ${COLORS.border}`, color: "#E0554F" }}
                   >
                     삭제
@@ -634,7 +634,7 @@ export default function SellerDashboardPage() {
                     <button
                       onClick={() => handleDelete(drop.dropId)}
                       disabled={deleteMutation.isPending}
-                      className="flex-1 py-2 rounded-lg text-sm disabled:opacity-60"
+                      className="flex-1 py-2 rounded-lg text-sm cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                       style={{ border: `1px solid ${COLORS.border}`, color: "#E0554F" }}
                     >
                       삭제

@@ -64,8 +64,6 @@ export default function EditDropPage() {
   useEffect(() => {
     function sync() {
       if (drop && !initialized) {
-        // ⚠️ GET /drops/mine 응답엔 category가 없다(DropInfoResponse에 그 필드 자체가 없음) —
-        // 저장된 카테고리를 미리 채울 방법이 없어 기본값을 보여주고 판매자가 다시 골라야 한다.
         setForm((f) => ({
           ...f,
           name: drop.name,
@@ -74,6 +72,7 @@ export default function EditDropPage() {
           price: String(drop.price),
           totalQuantity: String(drop.totalQuantity),
           limitQuantity: String(drop.limitQuantity),
+          category: drop.category,
         }));
         const [existingStartDate, existingStartTime] = toDatetimeLocal(drop.dropStart).split("T");
         setDropStartDate(existingStartDate ?? "");
